@@ -18,6 +18,7 @@ import {
   useAssignStudentsToBatch,
   useExtendStudentTerm,
   useCreateBatchSession,
+  useGenerateSessions,
 } from '@/hooks/useAdmin';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -684,8 +685,17 @@ function AddSessionModal({ batchId, batch, onClose }) {
   const [startTime, setStartTime] = useState(batch.start_time ? formatTime(batch.start_time) : '');
   const [endTime, setEndTime] = useState(batch.end_time ? formatTime(batch.end_time) : '');
 
+  // Dates on or before the last cycle session are blocked
+  const lastCycleDate = batch.cycle_end_date
+    ? new Date(batch.cycle_end_date).toISOString().slice(0, 10)
+    : null;
+
   async function handleSubmit() {
     if (!date) { toast.error('Date is required'); return; }
+    if (lastCycleDate && date <= lastCycleDate) {
+      toast.error(`Date must be after the last cycle session (${formatDate(batch.cycle_end_date)})`);
+      return;
+    }
     try {
       await create.mutateAsync({
         batchId,
@@ -705,9 +715,19 @@ function AddSessionModal({ batchId, batch, onClose }) {
       <div className="bg-background rounded-xl shadow-xl w-full max-w-sm p-6 flex flex-col gap-4">
         <h3 className="font-semibold">Add Single Session</h3>
         <p className="text-xs text-muted-foreground">Creates one extra session on a specific date. All current batch students will be added as participants automatically.</p>
+        {lastCycleDate && (
+          <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+            Last cycle ended on <span className="font-semibold">{formatDate(batch.cycle_end_date)}</span>. Only dates after this are allowed.
+          </div>
+        )}
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium">Date</label>
-          <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
+          <Input
+            type="date"
+            value={date}
+            min={lastCycleDate ? (() => { const d = new Date(lastCycleDate); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })() : undefined}
+            onChange={e => setDate(e.target.value)}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
@@ -732,16 +752,124 @@ function AddSessionModal({ batchId, batch, onClose }) {
   );
 }
 
+// Derive the day-after-cycle-end as ISO date string (used as min for bulk generate start date)
+function cycleEndPlusOne(cycleEndDate) {
+  if (!cycleEndDate) return null;
+  const d = new Date(cycleEndDate);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function GenerateBulkSessionsModal({ batchId, batch, onClose }) {
+  const generate = useGenerateSessions();
+
+  // Default session cap: use the batch's stored session_cap if set, else show empty (backend uses commission_rules)
+  const defaultCap = batch.session_cap ? String(batch.session_cap) : '';
+  const [sessionCap, setSessionCap] = useState(defaultCap);
+
+  // Start date must be after last cycle end
+  const minDate = cycleEndPlusOne(batch.cycle_end_date);
+  const [startDate, setStartDate] = useState(minDate ?? '');
+  const [result, setResult] = useState(null);
+
+  async function handleSubmit() {
+    try {
+      const res = await generate.mutateAsync({
+        batchId,
+        start_date_override: startDate || undefined,
+        session_cap_override: sessionCap ? Number(sessionCap) : undefined,
+      });
+      setResult(res);
+      toast.success(`Generated ${res.generated ?? 0} session(s)`);
+    } catch (err) {
+      toast.error(err?.response?.data?.message ?? 'Failed to generate sessions');
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-background rounded-xl shadow-xl w-full max-w-sm p-6 flex flex-col gap-4">
+        <h3 className="font-semibold">Generate Next Cycle Sessions</h3>
+        <p className="text-xs text-muted-foreground">
+          Bulk-generates sessions from a start date using the batch schedule
+          ({(batch.days_of_week ?? []).join(', ')}, {formatTime(batch.start_time)}–{formatTime(batch.end_time)}).
+          Already-existing dates are skipped automatically.
+        </p>
+
+        {batch.cycle_end_date && (
+          <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+            Previous cycle ended on <span className="font-semibold">{formatDate(batch.cycle_end_date)}</span>.
+            Start date is locked to after this date.
+          </div>
+        )}
+
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium">Cycle Start Date <span className="text-destructive">*</span></label>
+          <Input
+            type="date"
+            value={startDate}
+            min={minDate ?? undefined}
+            onChange={e => setStartDate(e.target.value)}
+            required
+          />
+          {minDate && (
+            <p className="text-xs text-muted-foreground mt-0.5">Earliest allowed: {formatDate(minDate)}</p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium">Session Cap <span className="text-muted-foreground font-normal">(per cycle)</span></label>
+          <Input
+            type="number"
+            min={1}
+            max={99}
+            placeholder="Uses commission rule default if blank"
+            value={sessionCap}
+            onChange={e => setSessionCap(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {defaultCap
+              ? `Batch default: ${defaultCap} sessions. Edit to override for this cycle.`
+              : 'No cap set on batch — will use the commission rule default.'}
+          </p>
+        </div>
+
+        {result && (
+          <div className="rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">
+            <p className="font-semibold">{result.generated} session(s) generated</p>
+            {result.cycle_start && (
+              <p className="text-xs mt-0.5">{formatDate(result.cycle_start)} → {formatDate(result.cycle_end)}</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            {result ? 'Close' : 'Cancel'}
+          </Button>
+          {!result && (
+            <Button size="sm" disabled={generate.isPending || !startDate} onClick={handleSubmit}>
+              {generate.isPending && <Loader2 className="size-3 mr-1 animate-spin" />}
+              Generate Sessions
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SessionsTab({ batch, pastSessions, upcomingSessions, batchId }) {
   const [view, setView] = useState('upcoming'); // 'upcoming' | 'past'
   const [showAddSession, setShowAddSession] = useState(false);
+  const [showGenerateBulk, setShowGenerateBulk] = useState(false);
 
   const sessions = view === 'upcoming' ? (upcomingSessions ?? []) : (pastSessions ?? []);
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Toggle + Add button */}
-      <div className="flex items-center justify-between">
+      {/* Toggle + buttons */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex gap-2">
           <button
             onClick={() => setView('upcoming')}
@@ -756,11 +884,17 @@ function SessionsTab({ batch, pastSessions, upcomingSessions, batchId }) {
             Past ({pastSessions?.length ?? 0})
           </button>
         </div>
-        <Button size="sm" variant="outline" onClick={() => setShowAddSession(true)}>+ Add Session</Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setShowGenerateBulk(true)}>Generate Next Cycle</Button>
+          <Button size="sm" variant="outline" onClick={() => setShowAddSession(true)}>+ Add Session</Button>
+        </div>
       </div>
 
       {showAddSession && (
         <AddSessionModal batchId={batchId} batch={batch} onClose={() => setShowAddSession(false)} />
+      )}
+      {showGenerateBulk && (
+        <GenerateBulkSessionsModal batchId={batchId} batch={batch} onClose={() => setShowGenerateBulk(false)} />
       )}
 
       {sessions.length === 0 ? (

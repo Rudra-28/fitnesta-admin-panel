@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import {
   Tabs,
@@ -32,7 +32,8 @@ import {
 } from '@/components/ui/drawer';
 import { ServiceTypeBadge } from '@/components/StatusBadge';
 import { usePending, useApprovePending, useRejectPending } from '@/hooks/useAdmin';
-import { Loader2, X, Eye, CheckCircle, XCircle } from 'lucide-react';
+import { fetchDocumentBlob } from '@/api/admin';
+import { Loader2, X, Eye, CheckCircle, XCircle, FileText } from 'lucide-react';
 
 const TABS = [
   { value: undefined, label: 'All' },
@@ -64,6 +65,36 @@ function formatValue(val) {
   return String(val);
 }
 
+function isCloudinaryUrl(val) {
+  return typeof val === 'string' && val.includes('res.cloudinary.com');
+}
+
+function DocumentButton({ url }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleOpen = useCallback(async () => {
+    setLoading(true);
+    try {
+      const blob = await fetchDocumentBlob(url);
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (err) {
+      console.error('Document open error:', err?.response?.data ?? err?.message);
+      toast.error('Failed to open document');
+    } finally {
+      setLoading(false);
+    }
+  }, [url]);
+
+  return (
+    <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700" onClick={handleOpen} disabled={loading}>
+      {loading ? <Loader2 className="size-3 animate-spin" /> : <FileText className="size-3" />}
+      View Document
+    </Button>
+  );
+}
+
 function FormDataDrawer({ record, onClose }) {
   if (!record) return null;
   const formData = record.formData ?? {};
@@ -91,9 +122,11 @@ function FormDataDrawer({ record, onClose }) {
             </p>
             <div className="rounded-lg border divide-y">
               {keyFields.map((k) => (
-                <div key={k} className="flex gap-2 px-3 py-2 text-sm">
+                <div key={k} className="flex gap-2 px-3 py-2 text-sm items-center">
                   <span className="w-40 shrink-0 text-muted-foreground">{formatKey(k)}</span>
-                  <span className="font-medium break-all">{formatValue(formData[k])}</span>
+                  {isCloudinaryUrl(formData[k])
+                    ? <DocumentButton url={formData[k]} />
+                    : <span className="font-medium break-all">{formatValue(formData[k])}</span>}
                 </div>
               ))}
             </div>
@@ -105,9 +138,11 @@ function FormDataDrawer({ record, onClose }) {
               </p>
               <div className="rounded-lg border divide-y">
                 {otherKeys.map((k) => (
-                  <div key={k} className="flex gap-2 px-3 py-2 text-sm">
+                  <div key={k} className="flex gap-2 px-3 py-2 text-sm items-center">
                     <span className="w-40 shrink-0 text-muted-foreground">{formatKey(k)}</span>
-                    <span className="break-all">{formatValue(formData[k])}</span>
+                    {isCloudinaryUrl(formData[k])
+                      ? <DocumentButton url={formData[k]} />
+                      : <span className="break-all">{formatValue(formData[k])}</span>}
                   </div>
                 ))}
               </div>

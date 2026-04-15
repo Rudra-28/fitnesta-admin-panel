@@ -324,11 +324,12 @@ export function useDeactivateBatch() {
 export function useGenerateSessions() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ batchId, start_date, end_date }) =>
-      adminApi.generateSessions(batchId, start_date, end_date),
+    mutationFn: ({ batchId, start_date_override, session_cap_override }) =>
+      adminApi.generateSessions(batchId, { start_date_override, session_cap_override }),
     onSuccess: (_, { batchId }) => {
       qc.invalidateQueries({ queryKey: ['batches'] });
       qc.invalidateQueries({ queryKey: ['batch', batchId] });
+      qc.invalidateQueries({ queryKey: ['batch-detail', batchId] });
       qc.invalidateQueries({ queryKey: ['sessions'] });
     },
   });
@@ -632,6 +633,14 @@ export function useUpsertFeeStructure() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ data, id }) => adminApi.upsertFeeStructure(data, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fee-structures'] }),
+  });
+}
+
+export function useDeleteFeeStructure() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => adminApi.deleteFeeStructure(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['fee-structures'] }),
   });
 }

@@ -109,6 +109,9 @@ export const upsertFeeStructure = (data, id) =>
     ? api.put(`/admin/fee-structures/${id}`, data).then((r) => r.data)
     : api.post('/admin/fee-structures', data).then((r) => r.data);
 
+export const deleteFeeStructure = (id) =>
+  api.delete(`/admin/fee-structures/${id}`).then((r) => r.data);
+
 export const getActivitiesByType = (coaching_type) =>
   api.get('/admin/activities', { params: { coaching_type } }).then((r) => r.data);
 
@@ -143,8 +146,11 @@ export const deleteBatch = (batchId) =>
 export const deactivateBatch = (batchId) =>
   api.patch(`/admin/batches/${batchId}/deactivate`).then((r) => r.data);
 
-export const generateSessions = (batchId, start_date, end_date) =>
-  api.post(`/admin/batches/${batchId}/generate-sessions`, start_date ? { start_date, end_date } : {}).then((r) => r.data);
+export const generateSessions = (batchId, { start_date_override, session_cap_override } = {}) =>
+  api.post(`/admin/batches/${batchId}/generate-sessions`, {
+    ...(start_date_override ? { start_date_override } : {}),
+    ...(session_cap_override != null ? { session_cap_override } : {}),
+  }).then((r) => r.data);
 
 export const getBatchDetail = (batchId) =>
   api.get(`/admin/batches/${batchId}/detail`).then((r) => r.data);

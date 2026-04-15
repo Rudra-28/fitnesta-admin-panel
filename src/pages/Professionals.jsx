@@ -598,8 +598,8 @@ function DocumentItem({ label, url }) {
       // revoke after a short delay to allow the tab to load
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
     } catch (err) {
-      console.error('Document proxy error:', err?.response?.data ?? err?.message ?? err);
-      toast.error('Failed to open document');
+      console.error('Document proxy error — status:', err?.response?.status, 'data:', err?.response?.data ?? err?.message ?? err);
+      toast.error(`Failed to open document: ${err?.response?.data?.error ?? err?.message ?? 'unknown error'}`);
     } finally {
       setLoading(false);
     }

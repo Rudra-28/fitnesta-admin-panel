@@ -5,8 +5,8 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useFeeStructures, useUpsertFeeStructure, useCustomCategories } from '@/hooks/useAdmin';
-import { Loader2, Pencil, Plus } from 'lucide-react';
+import { useFeeStructures, useUpsertFeeStructure, useDeleteFeeStructure, useCustomCategories } from '@/hooks/useAdmin';
+import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import ActivitiesTable from '@/components/ActivitiesTable';
 
@@ -259,9 +259,19 @@ function AddCustomCategoryModal({ activities, section, onClose }) {
   );
 }
 
-// ── Fee table with edit buttons ───────────────────────────────────────────────
+// ── Fee table with edit + delete buttons ─────────────────────────────────────
 
 function FeeTable({ fees, onEdit }) {
+  const [confirmId, setConfirmId] = useState(null);
+  const deleteMutation = useDeleteFeeStructure();
+
+  function handleDelete(id) {
+    deleteMutation.mutate(id, {
+      onSuccess: () => { toast.success('Fee row deleted'); setConfirmId(null); },
+      onError: (err) => toast.error(err?.response?.data?.error ?? 'Failed to delete'),
+    });
+  }
+
   if (!fees?.length) return <p className="px-3 py-2 text-xs text-muted-foreground">No fees defined.</p>;
   return (
     <Table>
@@ -270,7 +280,7 @@ function FeeTable({ fees, onEdit }) {
           <TableHead>Term</TableHead>
           <TableHead className="text-right">Total Fee</TableHead>
           <TableHead className="text-right">Per Month</TableHead>
-          <TableHead className="w-16 text-right">Edit</TableHead>
+          <TableHead className="w-24 text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -280,9 +290,29 @@ function FeeTable({ fees, onEdit }) {
             <TableCell className="text-right tabular-nums">{fmt(f.total_fee)}</TableCell>
             <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(f.effective_monthly)}</TableCell>
             <TableCell className="text-right">
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => onEdit(f)}>
-                <Pencil className="size-3.5" />
-              </Button>
+              {confirmId === f.id ? (
+                <span className="inline-flex items-center gap-1">
+                  <Button
+                    size="sm" variant="destructive" className="h-7 px-2 text-xs"
+                    disabled={deleteMutation.isPending}
+                    onClick={() => handleDelete(f.id)}
+                  >
+                    {deleteMutation.isPending ? <Loader2 className="size-3 animate-spin" /> : 'Yes'}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setConfirmId(null)}>
+                    No
+                  </Button>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-0.5">
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => onEdit(f)}>
+                    <Pencil className="size-3.5" />
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => setConfirmId(f.id)}>
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </span>
+              )}
             </TableCell>
           </TableRow>
         ))}

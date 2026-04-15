@@ -25,10 +25,21 @@ function AssignedBadge({ assigned }) {
     : <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">Unassigned</Badge>;
 }
 
-function MembershipBadge({ startDate, endDate }) {
-  if (!startDate) return <Badge variant="outline" className="text-muted-foreground">No Membership</Badge>;
-  if (isExpired(endDate)) return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Expired</Badge>;
-  return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Active</Badge>;
+function MembershipCell({ startDate, endDate, termMonths }) {
+  if (!startDate) return <span className="text-xs text-muted-foreground">—</span>;
+  const expired = isExpired(endDate);
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-1.5">
+        <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${expired ? 'bg-red-500' : 'bg-green-500'}`} />
+        <span className={`text-xs font-medium ${expired ? 'text-red-700' : 'text-green-700'}`}>
+          {expired ? 'Expired' : 'Active'}
+          {termMonths ? ` · ${termMonths}m` : ''}
+        </span>
+      </div>
+      <div className="text-xs text-muted-foreground">{fmt(startDate)} → {endDate ? fmt(endDate) : '—'}</div>
+    </div>
+  );
 }
 
 // ─── Student Drawer ───────────────────────────────────────────────────────────
@@ -190,7 +201,7 @@ function PersonalTutorTable({ records }) {
                 <TableCell>{r.standard ?? '—'}</TableCell>
                 <TableCell>{r.batch ?? '—'}</TableCell>
                 <TableCell>{r.teacher_for ?? '—'}</TableCell>
-                <TableCell><MembershipBadge startDate={r.membership_start_date} endDate={r.membership_end_date} /></TableCell>
+                <TableCell><MembershipCell startDate={r.membership_start_date} endDate={r.membership_end_date} termMonths={r.term_months} /></TableCell>
                 <TableCell><AssignedBadge assigned={r.assigned} /></TableCell>
               </TableRow>
             ))}
@@ -241,7 +252,7 @@ function IndividualCoachingTable({ records }) {
                 <TableCell className="text-muted-foreground text-sm">{r.society ?? '—'}</TableCell>
                 <TableCell>{r.flat_no ?? '—'}</TableCell>
                 <TableCell>{r.age ?? '—'}</TableCell>
-                <TableCell><MembershipBadge startDate={r.membership_start_date} endDate={r.membership_end_date} /></TableCell>
+                <TableCell><MembershipCell startDate={r.membership_start_date} endDate={r.membership_end_date} termMonths={r.term_months} /></TableCell>
                 <TableCell><AssignedBadge assigned={r.assigned} /></TableCell>
               </TableRow>
             ))}
