@@ -456,9 +456,14 @@ function StudentsTab({ batch, students, batchId }) {
   const [addSearch, setAddSearch] = useState('');
 
   const enrolledIds = new Set((students ?? []).map(s => s.student_id));
-  const availableStudents = (availableData?.data ?? []).filter(s => !enrolledIds.has(s.student_id ?? s.id));
+  const availableStudents = (availableData?.data ?? []).filter(s => {
+    const sid = s.students?.id ?? s.student_id ?? s.id;
+    return !enrolledIds.has(sid);
+  });
+  const getAvailableName = (s) => s.students?.users?.full_name ?? s.student_name ?? s.full_name ?? '—';
+  const getAvailableMobile = (s) => s.students?.users?.mobile ?? s.mobile ?? s.student_mobile ?? '—';
   const filteredAvailable = addSearch
-    ? availableStudents.filter(s => (s.student_name ?? s.full_name ?? '').toLowerCase().includes(addSearch.toLowerCase()))
+    ? availableStudents.filter(s => getAvailableName(s).toLowerCase().includes(addSearch.toLowerCase()))
     : availableStudents;
 
   async function handleRemove(studentId) {
@@ -503,9 +508,10 @@ function StudentsTab({ batch, students, batchId }) {
           <Input placeholder="Search…" className="h-8" value={addSearch} onChange={e => setAddSearch(e.target.value)} />
           <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
             {filteredAvailable.length === 0
-              ? <p className="p-4 text-center text-sm text-muted-foreground">No unassigned students available for this society + activity.</p>
+              ? <p className="p-4 text-center text-sm text-muted-foreground">No students available for this society + activity.</p>
               : filteredAvailable.map(s => {
-                const id = s.student_id ?? s.id;
+                const id = s.students?.id ?? s.student_id ?? s.id;
+                const inOtherBatch = s.batches && s.batches.id && String(s.batches.id) !== String(batchId);
                 return (
                   <label key={id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 cursor-pointer">
                     <input
@@ -514,10 +520,15 @@ function StudentsTab({ batch, students, batchId }) {
                       onChange={e => setSelectedAdd(prev => e.target.checked ? [...prev, id] : prev.filter(x => x !== id))}
                       className="rounded"
                     />
-                    <div>
-                      <p className="text-sm font-medium">{s.student_name ?? s.full_name}</p>
-                      <p className="text-xs text-muted-foreground">{s.mobile ?? s.student_mobile}</p>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{getAvailableName(s)}</p>
+                      <p className="text-xs text-muted-foreground">{getAvailableMobile(s)}</p>
                     </div>
+                    {inOtherBatch && (
+                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full shrink-0">
+                        In batch: {s.batches.batch_name ?? `#${s.batches.id}`}
+                      </span>
+                    )}
                   </label>
                 );
               })}
