@@ -144,7 +144,7 @@ export const deleteBatch = (batchId) =>
   api.delete(`/admin/batches/${batchId}`).then((r) => r.data);
 
 export const deactivateBatch = (batchId) =>
-  api.patch(`/admin/batches/${batchId}/deactivate`).then((r) => r.data);
+  api.delete(`/admin/batches/${batchId}`).then((r) => r.data);
 
 export const generateSessions = (batchId, { start_date_override, session_cap_override } = {}) =>
   api.post(`/admin/batches/${batchId}/generate-sessions`, {

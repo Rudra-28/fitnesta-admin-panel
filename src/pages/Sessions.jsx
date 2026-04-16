@@ -1307,13 +1307,14 @@ export default function Sessions() {
                 <th className="px-3 py-2">Time</th>
                 <th className="px-3 py-2">Professional</th>
                 <th className="px-3 py-2">Student / Batch</th>
-                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Teacher Status</th>
+                <th className="px-3 py-2">Student Attendance</th>
                 <th className="px-3 py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
               {sessions.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-4 text-center text-muted-foreground">No sessions found.</td></tr>
+                <tr><td colSpan={9} className="px-3 py-4 text-center text-muted-foreground">No sessions found.</td></tr>
               )}
               {sessions.map((session) => (
                 <tr key={session.id} className="border-b last:border-0 hover:bg-muted/30">
@@ -1331,8 +1332,51 @@ export default function Sessions() {
                       ? (session.batches?.batch_name ?? `Batch #${session.batch_id}`)
                       : (session.students?.users?.full_name ?? '—')}
                   </td>
+                  {/* Teacher Status — driven by professional punch-in/out */}
                   <td className="px-3 py-2">
-                    <Badge className={STATUS_BADGE[session.status] ?? ''}>{session.status}</Badge>
+                    {session.status === 'ongoing' ? (
+                      <div>
+                        <Badge className="text-xs bg-blue-100 text-blue-800">ongoing</Badge>
+                        {session.in_time && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            In: {new Date(session.in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </div>
+                    ) : session.status === 'completed' ? (
+                      <div>
+                        <Badge className="text-xs bg-green-100 text-green-800">completed</Badge>
+                        {session.out_time && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Out: {new Date(session.out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <Badge className={`text-xs ${STATUS_BADGE[session.status] ?? ''}`}>{session.status}</Badge>
+                    )}
+                  </td>
+                  {/* Student Attendance */}
+                  <td className="px-3 py-2">
+                    {(() => {
+                      const isBatch = !!session.batch_id;
+                      const participants = session.session_participants ?? [];
+                      if (isBatch) {
+                        const total = participants.length;
+                        const present = participants.filter(p => p.attended).length;
+                        if (total === 0) return <span className="text-xs text-muted-foreground">—</span>;
+                        if (present === 0) return <Badge className="text-xs bg-gray-100 text-gray-600">0/{total} present</Badge>;
+                        if (present === total) return <Badge className="text-xs bg-green-100 text-green-800">{present}/{total} present</Badge>;
+                        return <Badge className="text-xs bg-amber-100 text-amber-800">{present}/{total} present</Badge>;
+                      } else {
+                        // PT / IC: single student — attendance comes from session_participants (student marks via app)
+                        const sp = participants[0];
+                        if (sp?.attended === true) return <Badge className="text-xs bg-green-100 text-green-800">Present</Badge>;
+                        if (sp?.attended === false && ['completed', 'ongoing'].includes(session.status)) return <Badge className="text-xs bg-red-100 text-red-700">Absent</Badge>;
+                        if (['completed', 'ongoing'].includes(session.status)) return <Badge className="text-xs bg-amber-100 text-amber-800">Not marked</Badge>;
+                        return <span className="text-xs text-muted-foreground">—</span>;
+                      }
+                    })()}
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex gap-1 flex-wrap">

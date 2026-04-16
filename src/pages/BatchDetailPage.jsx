@@ -279,10 +279,38 @@ function SessionRow({ session, batchId }) {
           )}
         </td>
         <td className="px-3 py-2.5">
-          <Badge className={`text-xs ${STATUS_BADGE[session.status] ?? ''}`}>{session.status}</Badge>
+          {session.status === 'ongoing' ? (
+            <div>
+              <Badge className={`text-xs ${STATUS_BADGE.ongoing}`}>ongoing</Badge>
+              {session.in_time && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  In: {new Date(session.in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
+            </div>
+          ) : session.status === 'completed' ? (
+            <div>
+              <Badge className={`text-xs ${STATUS_BADGE.completed}`}>completed</Badge>
+              {session.out_time && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Out: {new Date(session.out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
+            </div>
+          ) : (
+            <Badge className={`text-xs ${STATUS_BADGE[session.status] ?? ''}`}>{session.status}</Badge>
+          )}
         </td>
-        <td className="px-3 py-2.5 text-xs text-muted-foreground">
-          {total > 0 ? `${attended}/${total} attended` : '—'}
+        <td className="px-3 py-2.5">
+          {total === 0 ? (
+            <span className="text-xs text-muted-foreground">—</span>
+          ) : attended === 0 ? (
+            <Badge className="text-xs bg-gray-100 text-gray-600">0/{total} present</Badge>
+          ) : attended === total ? (
+            <Badge className="text-xs bg-green-100 text-green-800">{attended}/{total} present</Badge>
+          ) : (
+            <Badge className="text-xs bg-amber-100 text-amber-800">{attended}/{total} present</Badge>
+          )}
         </td>
         <td className="px-3 py-2.5">
           <div className="flex gap-1 flex-wrap">
@@ -919,8 +947,8 @@ function SessionsTab({ batch, pastSessions, upcomingSessions, batchId }) {
                 <th className="px-3 py-2.5 text-xs font-semibold">Date</th>
                 <th className="px-3 py-2.5 text-xs font-semibold">Time</th>
                 <th className="px-3 py-2.5 text-xs font-semibold">Handled By</th>
-                <th className="px-3 py-2.5 text-xs font-semibold">Status</th>
-                <th className="px-3 py-2.5 text-xs font-semibold">Attendance</th>
+                <th className="px-3 py-2.5 text-xs font-semibold">Teacher Status</th>
+                <th className="px-3 py-2.5 text-xs font-semibold">Student Attendance</th>
                 <th className="px-3 py-2.5 text-xs font-semibold">Actions</th>
               </tr>
             </thead>

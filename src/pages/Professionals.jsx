@@ -65,18 +65,30 @@ function AssignmentCard({ professionalId, item, onSettled }) {
   const settle = useSettleProfessional();
   const [open, setOpen] = useState(false);
   const isBatch = !!item.batch_info;
+  const isIndividual = item.assignment_type === 'individual_coaching' || item.assignment_type === 'personal_tutor';
   const pct = item.attendance_pct ?? 0;
   const earnsLabel = 'Settlement amount';
-  const title = item.entity_name ?? item.batch_info?.batch_name ?? item.activity_name ?? 'Settlement Row';
-  const subtitle = [
-    SETTLEMENT_TYPE_LABELS[item.assignment_type] ?? item.assignment_type,
-    item.activity_name,
-    item.professional_name,
-  ].filter(Boolean).join(' | ');
+
+  // For batch: show society/school name. For IC/PT: show type label as title.
+  const title = isBatch
+    ? (item.batch_info?.entity_name ?? item.batch_info?.batch_name ?? item.entity_name ?? 'Settlement Row')
+    : (SETTLEMENT_TYPE_LABELS[item.assignment_type] ?? item.assignment_type);
+
+  const subtitle = isBatch
+    ? [item.activity_name, item.professional_name].filter(Boolean).join(' | ')
+    : [item.activity_name, item.professional_name].filter(Boolean).join(' | ');
+
   const cycleLabel = item.session_cycle
     ?? (item.window_start && item.window_end
       ? `${fmtDate(item.window_start)} - ${fmtDate(item.window_end)}`
       : '—');
+
+  // Parse time strings like "1970-01-01T01:30:00.000Z" → "07:30"
+  const fmtTime = (t) => {
+    if (!t) return null;
+    try { return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }); }
+    catch { return t?.slice(0, 5) ?? null; }
+  };
 
   async function handleSettle(e) {
     e.stopPropagation();
@@ -120,24 +132,32 @@ function AssignmentCard({ professionalId, item, onSettled }) {
           </div>
 
           <div className="rounded-lg border divide-y text-sm bg-background">
-            {isBatch && (
+            {isBatch && item.batch_info && (
               <div className="flex justify-between px-3 py-2">
-                <span className="text-muted-foreground">Batch info</span>
+                <span className="text-muted-foreground">Batch</span>
                 <span className="text-right">
-                  {item.batch_info.batch_name ?? item.batch_info.entity_name ?? '—'}
+                  {item.batch_info.batch_name ?? '—'}
                   {(item.batch_info.start_time || item.batch_info.end_time)
-                    ? ` | ${item.batch_info.start_time?.slice(0, 5) ?? '--:--'} - ${item.batch_info.end_time?.slice(0, 5) ?? '--:--'}`
+                    ? ` · ${fmtTime(item.batch_info.start_time) ?? '--:--'} – ${fmtTime(item.batch_info.end_time) ?? '--:--'}`
                     : ''}
                 </span>
+              </div>
+            )}
+            {isBatch && item.activity_name && (
+              <div className="flex justify-between px-3 py-2">
+                <span className="text-muted-foreground">Activity</span>
+                <span>{item.activity_name}</span>
+              </div>
+            )}
+            {isIndividual && item.activity_name && (
+              <div className="flex justify-between px-3 py-2">
+                <span className="text-muted-foreground">Activity / Subject</span>
+                <span>{item.activity_name}</span>
               </div>
             )}
             <div className="flex justify-between px-3 py-2">
               <span className="text-muted-foreground">Professional</span>
               <span>{item.professional_name ?? '—'}</span>
-            </div>
-            <div className="flex justify-between px-3 py-2">
-              <span className="text-muted-foreground">Settlement row</span>
-              <span>{SETTLEMENT_TYPE_LABELS[item.assignment_type] ?? item.assignment_type ?? '—'}</span>
             </div>
             <div className="flex justify-between px-3 py-2">
               <span className="text-muted-foreground">Settlement cycle</span>
@@ -155,13 +175,6 @@ function AssignmentCard({ professionalId, item, onSettled }) {
               <span>Absent sessions</span>
               <span className="font-medium">{item.absent_sessions ?? 0}</span>
             </div>
-            <div className="flex justify-between px-3 py-2">
-              <span className="text-muted-foreground">Context</span>
-              <span className="text-right">
-                {item.entity_name ?? '—'}
-                {item.activity_name ? ` | ${item.activity_name}` : ''}
-              </span>
-            </div>
             <div className="flex justify-between px-3 py-2 bg-muted/30">
               <span className="font-semibold">{earnsLabel}</span>
               <span className="font-semibold text-green-700">{inr(item.trainer_earns)}</span>
@@ -171,7 +184,7 @@ function AssignmentCard({ professionalId, item, onSettled }) {
           {(item.students ?? []).length > 0 && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                Students ({item.students.length})
+                {isIndividual ? `Students with sessions this cycle (${item.students.length})` : `Students (${item.students.length})`}
               </p>
               <div className="rounded-lg border divide-y text-sm bg-background">
                 {item.students.map((s, i) => (
@@ -185,6 +198,9 @@ function AssignmentCard({ professionalId, item, onSettled }) {
                 ))}
               </div>
             </div>
+          )}
+          {isIndividual && (item.students ?? []).length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-2">No sessions recorded for any student in this cycle yet.</p>
           )}
 
           <div className="flex justify-end pt-2">

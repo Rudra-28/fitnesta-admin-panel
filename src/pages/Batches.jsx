@@ -770,8 +770,8 @@ function BatchTable({ batchType }) {
     try {
       await deactivateBatch.mutateAsync(batch.id);
       toast.success('Batch deactivated');
-    } catch {
-      toast.error('Failed to deactivate batch');
+    } catch (err) {
+      toast.error(err?.response?.data?.message ?? err?.response?.data?.error ?? 'Failed to deactivate batch');
     }
   }
 
@@ -1756,11 +1756,43 @@ function SessionRow({ session, sessionType }) {
         <td className="px-3 py-2 text-muted-foreground text-xs">#{session.id}</td>
         <td className="px-3 py-2 text-xs">{session.scheduled_date ? new Date(session.scheduled_date).toLocaleDateString() : '—'}</td>
         <td className="px-3 py-2 text-xs whitespace-nowrap">{formatTime(session.start_time)}–{formatTime(session.end_time)}</td>
-        <td className="px-3 py-2">
-          <Badge className={`text-xs ${SESSION_STATUS_COLORS[session.status] ?? ''}`}>{session.status}</Badge>
-        </td>
         <td className="px-3 py-2 text-xs font-medium text-muted-foreground">
-          {session.professionals?.users?.full_name ?? 'Somnath Trainer (Dummy)'}
+          {session.professionals?.users?.full_name ?? '—'}
+        </td>
+        {/* Teacher Status — reflects professional punch-in/out from Flutter app */}
+        <td className="px-3 py-2">
+          {session.status === 'ongoing' ? (
+            <div>
+              <Badge className="text-xs bg-blue-100 text-blue-800">ongoing</Badge>
+              {session.in_time && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  In: {new Date(session.in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
+            </div>
+          ) : session.status === 'completed' ? (
+            <div>
+              <Badge className="text-xs bg-green-100 text-green-800">completed</Badge>
+              {session.out_time && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Out: {new Date(session.out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
+            </div>
+          ) : (
+            <Badge className={`text-xs ${SESSION_STATUS_COLORS[session.status] ?? ''}`}>{session.status}</Badge>
+          )}
+        </td>
+        {/* Student Attendance — set when student marks via Flutter app */}
+        <td className="px-3 py-2">
+          {(() => {
+            const sp = (session.session_participants ?? [])[0];
+            if (sp?.attended === true) return <Badge className="text-xs bg-green-100 text-green-800">Present</Badge>;
+            if (['completed', 'ongoing'].includes(session.status)) {
+              return <Badge className="text-xs bg-amber-100 text-amber-800">Not marked</Badge>;
+            }
+            return <span className="text-xs text-muted-foreground">—</span>;
+          })()}
         </td>
         <td className="px-3 py-2">
           <div className="flex gap-1">
@@ -1790,7 +1822,7 @@ function SessionRow({ session, sessionType }) {
       {/* Inline reschedule form */}
       {rescheduling && (
         <tr className="border-b bg-blue-50/50">
-          <td colSpan={6} className="px-3 py-2">
+          <td colSpan={7} className="px-3 py-2">
             <form onSubmit={handleReschedule} className="flex flex-wrap gap-2 items-end">
               <div>
                 <label className="text-xs font-medium block mb-0.5">New Date</label>
@@ -1817,7 +1849,7 @@ function SessionRow({ session, sessionType }) {
       {/* Inline cancel form */}
       {cancelling && (
         <tr className="border-b bg-red-50/50">
-          <td colSpan={6} className="px-3 py-2">
+          <td colSpan={7} className="px-3 py-2">
             <form onSubmit={handleCancel} className="flex gap-2 items-end">
               <div className="flex-1">
                 <label className="text-xs font-medium block mb-0.5">Reason (required)</label>
@@ -1839,12 +1871,17 @@ function StudentSessionCard({ student, sessionType }) {
   const [expanded, setExpanded] = useState(false);
   const generate = useGenerateIndividualSessions();
   const studentId = student.id ?? student.student_id;
-  const { data, isLoading } = useStudentBatches(expanded ? studentId : null);
+  const { data, isLoading } = useStudentBatches(studentId);
   const groups = data?.data ?? [];
   const [reassigningGroup, setReassigningGroup] = useState(null);
 
   const isPT = sessionType === 'personal_tutor';
   const subLabel = isPT ? student.teacher_for : student.activity;
+
+  // Derive cycle range from the first group (most recent cycle)
+  const firstGroup = groups[0];
+  const cycleStart = firstGroup?.cycle_start ?? student.start_date ?? student.start ?? null;
+  const cycleEnd = firstGroup?.cycle_end ?? student.end_date ?? student.end ?? null;
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -1867,14 +1904,14 @@ function StudentSessionCard({ student, sessionType }) {
             <div className="flex flex-col">
               <span className="text-[10px] text-muted-foreground uppercase font-black tracking-widest mb-0.5">Cycle Range</span>
               <span className="text-sm font-bold tabular-nums text-foreground">
-                {(student.start_date || student.start || '—')} → {(student.end_date || student.end || '—')}
+                {cycleStart ? new Date(cycleStart).toLocaleDateString() : '—'} → {cycleEnd ? new Date(cycleEnd).toLocaleDateString() : '—'}
               </span>
             </div>
 
             <div className="flex flex-col min-w-[120px]">
               <span className="text-[10px] text-muted-foreground uppercase font-black tracking-widest mb-1">Alert Message</span>
               {(() => {
-                const endDateRaw = student.end_date || student.end;
+                const endDateRaw = cycleEnd;
                 if (!endDateRaw) return <span className="text-[11px] text-muted-foreground italic">No Cycle Set</span>;
 
                 const now = new Date();
@@ -1967,14 +2004,15 @@ function StudentSessionCard({ student, sessionType }) {
                       <th className="px-3 py-1.5 text-xs">ID</th>
                       <th className="px-3 py-1.5 text-xs">Date</th>
                       <th className="px-3 py-1.5 text-xs">Time</th>
-                      <th className="px-3 py-1.5 text-xs">Status</th>
                       <th className="px-3 py-1.5 text-xs">Handled By</th>
+                      <th className="px-3 py-1.5 text-xs">Teacher Status</th>
+                      <th className="px-3 py-1.5 text-xs">Student Attendance</th>
                       <th className="px-3 py-1.5 text-xs">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(group.sessions ?? []).length === 0 && (
-                      <tr><td colSpan={5} className="px-3 py-3 text-center text-xs text-muted-foreground">No sessions.</td></tr>
+                      <tr><td colSpan={7} className="px-3 py-3 text-center text-xs text-muted-foreground">No sessions.</td></tr>
                     )}
                     {(group.sessions ?? []).map((session) => (
                       <SessionRow key={session.id} session={session} sessionType={sessionType} />

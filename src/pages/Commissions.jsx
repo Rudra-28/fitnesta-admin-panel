@@ -731,8 +731,16 @@ function SettlementTab() {
         <EmptyState message="Nothing to settle right now." />
       ) : (
         <>
-          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
-            Settlement is based on completed sessions delivered in this cycle. A batch or student may appear in multiple settlement rows if sessions were reassigned.
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300 space-y-1">
+            <div className="font-medium">How commission is calculated (monthly cycle)</div>
+            <div>
+              <span className="font-mono bg-blue-100 dark:bg-blue-900/40 rounded px-1 py-0.5 text-xs">
+                Earns = (Fee Base × Rate%) ÷ Monthly Cap × Sessions Counted
+              </span>
+            </div>
+            <div className="text-xs opacity-80">
+              Fee Base = sum of all students' effective monthly fees · Sessions Counted = capped at Monthly Cap · Settle every month for multi-month memberships.
+            </div>
           </div>
           <div className="rounded-lg border overflow-hidden">
             <Table>
@@ -747,23 +755,29 @@ function SettlementTab() {
                     />
                   </TableHead>
                   <TableHead>Professional</TableHead>
-                  <TableHead>Settlement Row</TableHead>
-                  <TableHead>Context</TableHead>
-                  <TableHead className="text-right">Delivered Sessions</TableHead>
-                  <TableHead className="text-right">Upcoming</TableHead>
-                  <TableHead className="text-right">Absent</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Settlement Cycle</TableHead>
+                  <TableHead>Type / Context</TableHead>
+                  <TableHead className="text-right">Sessions Counted</TableHead>
+                  <TableHead className="text-right">Monthly Cap</TableHead>
+                  <TableHead className="text-right">Fee Base</TableHead>
+                  <TableHead className="text-right">Rate</TableHead>
+                  <TableHead className="text-right">Per Session</TableHead>
+                  <TableHead className="text-right">Earns</TableHead>
+                  <TableHead>Cycle</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {preview.map((row) => {
                   const amount = Number(row.trainer_earns ?? row.commission_amount ?? 0);
                   const zeroComm = amount === 0;
+                  const rawCount = row.sessions_completed_raw ?? row.sessions_completed ?? row.sessions_attended ?? 0;
+                  const countedCount = row.sessions_completed ?? row.sessions_attended ?? 0;
+                  const wasClamped = rawCount > countedCount;
+                  const monthlyCap = row.total_sessions_allocated ?? row.session_cap ?? row.standard_sessions_cap ?? '—';
                   const cycleLabel = row.session_cycle
                     ?? (row.window_start
-                      ? `${new Date(row.window_start).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - ${new Date(row.window_end ?? row.window_start).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                      ? `${new Date(row.window_start).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} – ${new Date(row.window_end ?? row.window_start).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
                       : '—');
+
                   return (
                     <TableRow key={row.assignment_id} className={cn(zeroComm && 'opacity-60')}>
                       <TableCell>
@@ -774,32 +788,94 @@ function SettlementTab() {
                           className="rounded border-input"
                         />
                       </TableCell>
+
+                      {/* Professional */}
                       <TableCell>
                         <div className="font-medium text-sm">{row.professional_name}</div>
                         <div className="text-xs text-muted-foreground capitalize">
                           {row.professional_type?.replace('_', ' ')}
                         </div>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {ASSIGNMENT_TYPE_LABEL[row.assignment_type] ?? row.assignment_type}
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">{row.entity_name ?? '—'}</div>
-                        <div className="text-xs text-muted-foreground">{row.activity_name ?? row.batch_info?.activity_name ?? '—'}</div>
-                        {row.batch_info && (
-                          <div className="text-xs text-muted-foreground">{row.batch_info.batch_name ?? row.batch_info.entity_name ?? '—'}</div>
+                        {row.professional_mobile && (
+                          <div className="text-xs text-muted-foreground">{row.professional_mobile}</div>
                         )}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{row.sessions_completed ?? row.sessions_attended ?? 0}</TableCell>
-                      <TableCell className="text-right tabular-nums">{row.upcoming_sessions ?? 0}</TableCell>
-                      <TableCell className="text-right tabular-nums">{row.absent_sessions ?? 0}</TableCell>
-                      <TableCell className="text-right tabular-nums font-medium">
-                        {zeroComm ? (
-                          <span className="text-muted-foreground text-xs">₹0 - skipped</span>
-                        ) : inr(amount)}
+
+                      {/* Type / Context */}
+                      <TableCell>
+                        <div className="text-xs text-muted-foreground">
+                          {ASSIGNMENT_TYPE_LABEL[row.assignment_type] ?? row.assignment_type}
+                        </div>
+                        <div className="text-sm">{row.entity_name ?? row.batch_info?.entity_name ?? '—'}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {row.activity_name ?? row.batch_info?.activity_name ?? '—'}
+                        </div>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {cycleLabel}
+
+                      {/* Sessions Counted */}
+                      <TableCell className="text-right">
+                        <div className="tabular-nums font-medium text-sm">{countedCount}</div>
+                        {wasClamped && (
+                          <div className="text-xs text-amber-600 font-medium">
+                            {rawCount} actual → capped
+                          </div>
+                        )}
+                        {(row.absent_sessions ?? 0) > 0 && (
+                          <div className="text-xs text-muted-foreground">{row.absent_sessions} absent</div>
+                        )}
+                      </TableCell>
+
+                      {/* Monthly Cap */}
+                      <TableCell className="text-right tabular-nums text-sm">
+                        {monthlyCap}
+                        {row.is_flat_rate && (
+                          <div className="text-xs text-muted-foreground">flat rate</div>
+                        )}
+                      </TableCell>
+
+                      {/* Fee Base (sum of effective monthly fees) */}
+                      <TableCell className="text-right tabular-nums text-sm">
+                        {row.effective_fee_base != null ? inr(row.effective_fee_base) : '—'}
+                      </TableCell>
+
+                      {/* Commission Rate */}
+                      <TableCell className="text-right text-sm">
+                        {row.is_flat_rate
+                          ? <span className="text-muted-foreground">—</span>
+                          : `${Number(row.commission_rate)}%`}
+                      </TableCell>
+
+                      {/* Per Session */}
+                      <TableCell className="text-right tabular-nums text-sm">
+                        {row.commission_per_session != null ? inr(row.commission_per_session) : '—'}
+                        {row.is_flat_rate && (
+                          <div className="text-xs text-muted-foreground">
+                            {inr(row.flat_amount_per_session)}/session
+                          </div>
+                        )}
+                      </TableCell>
+
+                      {/* Earns */}
+                      <TableCell className="text-right tabular-nums font-semibold">
+                        {zeroComm ? (
+                          <span className="text-muted-foreground text-xs">₹0 — skipped</span>
+                        ) : (
+                          <span className="text-green-700 dark:text-green-400">{inr(amount)}</span>
+                        )}
+                      </TableCell>
+
+                      {/* Cycle */}
+                      <TableCell>
+                        <div className="text-xs text-muted-foreground whitespace-nowrap">{cycleLabel}</div>
+                        {row.last_settled_at && (
+                          <div className="text-xs text-muted-foreground">
+                            Last settled: {new Date(row.last_settled_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </div>
+                        )}
+                        {wasClamped && (
+                          <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                            <AlertTriangle className="size-2.5" /> Overdue — settle monthly
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   );
@@ -808,22 +884,48 @@ function SettlementTab() {
             </Table>
           </div>
 
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
-              {selectAll || selectedIds.size === 0
-                ? `Will settle all ${preview.length} assignments`
-                : `${selectedIds.size} of ${preview.length} selected`}
-            </p>
-            <Button
-              disabled={confirm.isPending}
-              onClick={handleConfirm}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
-              {confirm.isPending && <Loader2 className="size-4 animate-spin mr-2" />}
-              <CheckCircle2 className="size-4 mr-1.5" />
-              Confirm Settlement
-            </Button>
-          </div>
+          {/* Totals summary */}
+          {(() => {
+            const rowsInScope = (selectAll || selectedIds.size === 0)
+              ? preview
+              : preview.filter((r) => selectedIds.has(r.assignment_id));
+            const totalEarns = rowsInScope.reduce((s, r) => s + Number(r.trainer_earns ?? r.commission_amount ?? 0), 0);
+            const overdueCount = rowsInScope.filter((r) => {
+              const raw = r.sessions_completed_raw ?? r.sessions_completed ?? 0;
+              const counted = r.sessions_completed ?? 0;
+              return raw > counted;
+            }).length;
+
+            return (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-3">
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Assignments: </span>
+                    <span className="font-medium">{rowsInScope.length}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Total payout: </span>
+                    <span className="font-semibold text-green-700 dark:text-green-400">{inr(totalEarns)}</span>
+                  </div>
+                  {overdueCount > 0 && (
+                    <div className="inline-flex items-center gap-1 text-amber-600">
+                      <AlertTriangle className="size-3.5" />
+                      <span>{overdueCount} overdue — some sessions were clamped. Settle monthly to capture all.</span>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  disabled={confirm.isPending}
+                  onClick={handleConfirm}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  {confirm.isPending && <Loader2 className="size-4 animate-spin mr-2" />}
+                  <CheckCircle2 className="size-4 mr-1.5" />
+                  Confirm Settlement
+                </Button>
+              </div>
+            );
+          })()}
         </>
       )}
     </div>
