@@ -411,3 +411,41 @@ export const reassignSingleSession = (sessionId, new_professional_id) =>
 // Reassign all future scheduled sessions for a student to a different professional
 export const reassignAllFutureSessions = (session_type, student_id, new_professional_id) =>
   api.post('/admin/sessions/reassign-all', { session_type, student_id, new_professional_id }).then((r) => r.data);
+
+// Add a single session inside the current settlement cycle (PT or IC)
+export const addSessionToCycle = (data) =>
+  api.post('/admin/sessions/add-to-cycle', data).then((r) => r.data);
+
+// PT Cycle Settlement
+export const getPtSettlement = (professionalId) =>
+  api.get(`/admin/teachers/${professionalId}/pt-settlement`).then((r) => r.data);
+
+export const settlePtCycle = (cycleId, professional_id) =>
+  api.post(`/admin/pt-cycles/${cycleId}/settle`, { professional_id }).then((r) => r.data);
+
+// IC Cycle Settlement
+export const getIcSettlement = (professionalId) =>
+  api.get(`/admin/trainers/${professionalId}/ic-settlement`).then((r) => r.data);
+
+export const settleIcCycle = (cycleId, professional_id) =>
+  api.post(`/admin/ic-cycles/${cycleId}/settle`, { professional_id }).then((r) => r.data);
+
+// Batch Cycle Settlement (society + school)
+export const getSocietySettlement = (professionalId) =>
+  api.get(`/admin/trainers/${professionalId}/society-settlement`).then((r) => r.data);
+
+export const getSchoolSettlement = (professionalId) =>
+  api.get(`/admin/trainers/${professionalId}/school-settlement`).then((r) => r.data);
+
+export const settleBatchCycle = (cycleId) =>
+  api.post(`/admin/batches/batch-cycles/${cycleId}/settle`).then((r) => r.data);
+
+// Extend cycles (creates next month's cycle + sessions)
+export const extendBatchCycle = (batchId) =>
+  api.post(`/admin/batches/${batchId}/extend-cycle`).then((r) => r.data);
+
+export const extendPtCycle = (personalTutorId) =>
+  api.post(`/admin/pt/${personalTutorId}/extend-cycle`).then((r) => r.data);
+
+export const extendIcCycle = (individualParticipantId) =>
+  api.post(`/admin/ic/${individualParticipantId}/extend-cycle`).then((r) => r.data);

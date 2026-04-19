@@ -10,20 +10,20 @@ import { sendOTP, verifyOTP } from '@/lib/firebase';
 
 // ── Error maps ────────────────────────────────────────────────────────────────
 const BACKEND_ERRORS = {
-  USER_NOT_FOUND:          'No admin account found with this mobile number.',
-  ROLE_MISMATCH:           'This number is not registered as an admin.',
-  APPROVAL_PENDING:        'Your admin account is pending approval.',
-  REGISTRATION_REJECTED:   'Your admin account has been rejected.',
-  ACCOUNT_SUSPENDED:       'Your account has been suspended. Contact support.',
-  ADMIN_RECORD_NOT_FOUND:  'Admin record not found. Contact super-admin.',
+  USER_NOT_FOUND: 'No admin account found with this mobile number.',
+  ROLE_MISMATCH: 'This number is not registered as an admin.',
+  APPROVAL_PENDING: 'Your admin account is pending approval.',
+  REGISTRATION_REJECTED: 'Your admin account has been rejected.',
+  ACCOUNT_SUSPENDED: 'Your account has been suspended. Contact support.',
+  ADMIN_RECORD_NOT_FOUND: 'Admin record not found. Contact super-admin.',
 };
 
 const FIREBASE_ERRORS = {
-  'auth/invalid-phone-number':      'Enter a valid 10-digit Indian mobile number.',
-  'auth/too-many-requests':         'Too many OTP attempts. Please try again later.',
+  'auth/invalid-phone-number': 'Enter a valid 10-digit Indian mobile number.',
+  'auth/too-many-requests': 'Too many OTP attempts. Please try again later.',
   'auth/invalid-verification-code': 'Incorrect OTP. Please check and try again.',
-  'auth/code-expired':              'OTP expired. Please request a new one.',
-  'auth/missing-phone-number':      'Phone number is required.',
+  'auth/code-expired': 'OTP expired. Please request a new one.',
+  'auth/missing-phone-number': 'Phone number is required.',
 };
 
 const friendlyError = (err) =>
@@ -92,13 +92,13 @@ function OtpInput({ value, onChange, disabled }) {
 // ── Main Login page ───────────────────────────────────────────────────────────
 export default function Login() {
   const navigate = useNavigate();
-  const setAuth  = useAuthStore((s) => s.setAuth);
+  const setAuth = useAuthStore((s) => s.setAuth);
 
-  const [step, setStep]               = useState('mobile'); // 'mobile' | 'otp'
-  const [mobile, setMobile]           = useState('');
-  const [mobileErr, setMobileErr]     = useState('');
-  const [otp, setOtp]                 = useState('');
-  const [loading, setLoading]         = useState(false);
+  const [step, setStep] = useState('mobile'); // 'mobile' | 'otp'
+  const [mobile, setMobile] = useState('');
+  const [mobileErr, setMobileErr] = useState('');
+  const [otp, setOtp] = useState('');
+  const [loading, setLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(0);
 
   // Resend countdown

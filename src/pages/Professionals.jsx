@@ -16,8 +16,20 @@ import {
   useVendorPanel,
   useSettleVendorOrder,
   useTrainerSettlementPreview,
+  useAddSessionToCycle,
+  usePtSettlement,
+  useSettlePtCycle,
+  useIcSettlement,
+  useSettleIcCycle,
+  useSocietySettlement,
+  useSchoolSettlement,
+  useSettleBatchCycle,
+  useExtendPtCycle,
+  useExtendIcCycle,
+  useExtendBatchCycle,
 } from '@/hooks/useAdmin';
-import { Loader2, X, ChevronDown, ChevronRight, Wallet, Package, ShoppingCart, FileText, IdCard, FileDigit, UserCircle, FileCheck } from 'lucide-react';
+import api from '@/api/axios';
+import { Loader2, X, ChevronDown, ChevronRight, Wallet, Package, ShoppingCart, FileText, IdCard, FileDigit, UserCircle, FileCheck, PlusCircle } from 'lucide-react';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -58,16 +70,175 @@ const SETTLEMENT_TYPE_LABELS = {
   personal_tutor: 'Personal Tutor',
 };
 
+// ─── Add Session to Cycle Modal ───────────────────────────────────────────────
+
+function AddSessionToCycleModal({ professionalId, item, onClose }) {
+  const addSession = useAddSessionToCycle();
+  const sessionType = item.assignment_type; // 'personal_tutor' or 'individual_coaching'
+
+  // Derive student from the item — for IC/PT there is always exactly 1 student
+  const student = item.students?.[0] ?? null;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({
+    scheduled_date: today,
+    start_time: '',
+    end_time: '',
+  });
+
+  function set(field, value) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.start_time || !form.end_time) {
+      toast.error('Start time and end time are required');
+      return;
+    }
+    if (form.start_time >= form.end_time) {
+      toast.error('End time must be after start time');
+      return;
+    }
+    if (!student?.student_id) {
+      toast.error('Could not resolve student for this assignment');
+      return;
+    }
+
+    try {
+      const payload = {
+        session_type: sessionType,
+        student_id: student.student_id,
+        professional_id: professionalId,
+        scheduled_date: form.scheduled_date,
+        start_time: form.start_time,
+        end_time: form.end_time,
+        ...(item.activity_id ? { activity_id: item.activity_id } : {}),
+      };
+      const res = await addSession.mutateAsync(payload);
+      if (res.data?.cap_warning) {
+        toast.warning(res.data.cap_warning, { duration: 8000 });
+      } else {
+        toast.success('Session added to cycle');
+      }
+      onClose();
+    } catch (err) {
+      const code = err?.response?.data?.code;
+      const msg  = err?.response?.data?.message ?? 'Failed to add session';
+      if (code === 'OUTSIDE_CYCLE') {
+        toast.error('Date is outside the current settlement cycle. Choose a date within the cycle.');
+      } else if (code === 'PROFESSIONAL_CONFLICT') {
+        toast.error('Professional already has a session at that time.');
+      } else if (code === 'STUDENT_CONFLICT') {
+        toast.error('Student already has a session at that time.');
+      } else {
+        toast.error(msg);
+      }
+    }
+  }
+
+  const cycleStart = item.session_cycle?.split('–')[0]?.trim() ?? null;
+  const cycleEnd   = item.session_cycle?.split('–')[1]?.trim() ?? null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6">
+      <div className="bg-background rounded-xl shadow-2xl w-full max-w-md">
+        {/* Header */}
+        <div className="px-5 py-4 border-b flex items-center justify-between">
+          <div>
+            <h4 className="font-bold text-sm">Add Session to Cycle</h4>
+            <p className="text-xs text-muted-foreground">
+              {SETTLEMENT_TYPE_LABELS[sessionType] ?? sessionType}
+              {student?.name ? ` · ${student.name}` : ''}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-muted rounded text-muted-foreground">
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {/* Cycle info banner */}
+        {cycleStart && (
+          <div className="mx-5 mt-4 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700">
+            Current cycle: <span className="font-semibold">{cycleStart}</span> – <span className="font-semibold">{cycleEnd}</span>.
+            Session date must fall within this window.
+          </div>
+        )}
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Session Date</label>
+            <input
+              type="date"
+              value={form.scheduled_date}
+              onChange={(e) => set('scheduled_date', e.target.value)}
+              className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Start Time</label>
+              <input
+                type="time"
+                value={form.start_time}
+                onChange={(e) => set('start_time', e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">End Time</label>
+              <input
+                type="time"
+                value={form.end_time}
+                onChange={(e) => set('end_time', e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                required
+              />
+            </div>
+          </div>
+
+          {/* Cap info */}
+          <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-0.5">
+            <div className="flex justify-between">
+              <span>Sessions in cycle</span>
+              <span className="font-medium tabular-nums">{item.sessions_completed ?? 0} + {item.upcoming_sessions ?? 0} = {(item.sessions_completed ?? 0) + (item.upcoming_sessions ?? 0)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Commission cap</span>
+              <span className="font-medium tabular-nums">{item.total_sessions_allocated ?? item.session_cap ?? '—'}</span>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={addSession.isPending}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={addSession.isPending}>
+              {addSession.isPending && <Loader2 className="size-3 animate-spin mr-1.5" />}
+              Add Session
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Session group collapse ────────────────────────────────────────────────────
 
 // item shape from GET /professionals/:id/settlement-preview
 function AssignmentCard({ professionalId, item, onSettled }) {
   const settle = useSettleProfessional();
   const [open, setOpen] = useState(false);
-  const isBatch = !!item.batch_info;
+  const [addSessionOpen, setAddSessionOpen] = useState(false);
   const isIndividual = item.assignment_type === 'individual_coaching' || item.assignment_type === 'personal_tutor';
+  const isGroup = item.assignment_type === 'group_coaching_society' || item.assignment_type === 'group_coaching_school';
+  const isBatch = isGroup; // group coaching always comes with batch_info
   const pct = item.attendance_pct ?? 0;
-  const earnsLabel = 'Settlement amount';
 
   // For batch: show society/school name. For IC/PT: show type label as title.
   const title = isBatch
@@ -115,7 +286,8 @@ function AssignmentCard({ professionalId, item, onSettled }) {
           <p className="text-xs text-muted-foreground truncate">{subtitle}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-sm font-medium tabular-nums">{item.sessions_completed ?? 0} delivered sessions</p>
+          <p className="text-sm font-semibold text-green-700 tabular-nums">{inr(item.trainer_earns)}</p>
+          <p className="text-[11px] text-muted-foreground tabular-nums">{item.sessions_completed ?? 0} / {item.monthly_cap ?? item.session_cap ?? '?'} sessions</p>
         </div>
       </button>
 
@@ -169,47 +341,114 @@ function AssignmentCard({ professionalId, item, onSettled }) {
             </div>
             <div className="flex justify-between px-3 py-2">
               <span className="text-muted-foreground">Upcoming sessions</span>
-              <span className="font-medium">{item.upcoming_sessions ?? 0}</span>
+              <span className="font-medium">{item.sessions_upcoming ?? item.upcoming_sessions ?? 0}</span>
             </div>
             <div className="flex justify-between px-3 py-2 text-red-600">
               <span>Absent sessions</span>
-              <span className="font-medium">{item.absent_sessions ?? 0}</span>
+              <span className="font-medium">{item.sessions_absent ?? item.absent_sessions ?? 0}</span>
             </div>
-            <div className="flex justify-between px-3 py-2 bg-muted/30">
-              <span className="font-semibold">{earnsLabel}</span>
+
+            {item.effective_fee_base !== undefined && (
+              <>
+                <div className="flex justify-between px-3 py-2 border-t border-dashed bg-muted/5">
+                  <span className="text-muted-foreground">Total sessions allocated</span>
+                  <span className="font-medium">{item.monthly_cap ?? item.session_cap ?? item.commission_cap ?? '—'}</span>
+                </div>
+                <div className="flex justify-between px-3 py-2 bg-muted/5">
+                  <span className="text-muted-foreground">Commission Rate</span>
+                  <span className="font-medium">{item.commission_rate ?? 0}%</span>
+                </div>
+                <div className="flex justify-between px-3 py-2 bg-muted/5">
+                  <span className="text-muted-foreground">Commission Cap (Sessions)</span>
+                  <span className="font-medium">{item.effective_cap ?? item.monthly_cap ?? item.session_cap ?? 0}</span>
+                </div>
+                <div className="flex justify-between px-3 py-2 bg-muted/5">
+                  <span className="text-muted-foreground">{item.students_fee_sum ? 'Students Fee Pool' : 'Effective Base Fee'}</span>
+                  <span className="font-medium">{inr(item.students_fee_sum ?? item.effective_fee_base)}</span>
+                </div>
+                <div className="flex justify-between px-3 py-2 bg-muted/5 mb-1">
+                  <span className="text-muted-foreground">Per-Session Earning</span>
+                  <span className="font-medium text-emerald-600">{inr(item.commission_per_session)}</span>
+                </div>
+              </>
+            )}
+
+            <div className="flex justify-between px-3 py-2 bg-muted/30 border-t">
+              <span className="font-semibold">Settlement amount</span>
               <span className="font-semibold text-green-700">{inr(item.trainer_earns)}</span>
             </div>
           </div>
 
           {(item.students ?? []).length > 0 && (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                {isIndividual ? `Students with sessions this cycle (${item.students.length})` : `Students (${item.students.length})`}
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5 mt-1">
+                {isIndividual
+                  ? `Student${item.students.length > 1 ? `s (${item.students.length})` : ''}`
+                  : `Students (${item.students.length})`}
               </p>
               <div className="rounded-lg border divide-y text-sm bg-background">
                 {item.students.map((s, i) => (
-                  <div key={i} className="flex items-center justify-between px-3 py-2">
-                    <div>
-                      <p className="font-medium text-xs">{s.name}</p>
-                      {s.detail && <p className="text-[11px] text-muted-foreground">{s.detail}</p>}
+                  <div key={i} className="flex items-center justify-between px-3 py-2 gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-xs truncate">{s.name}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {s.activity ?? s.detail ?? '—'}
+                        {s.term_months ? ` · ${s.term_months}m` : ''}
+                        {s.mobile ? ` · ${s.mobile}` : ''}
+                      </p>
                     </div>
-                    <span className="text-xs text-muted-foreground tabular-nums">{s.mobile ?? '?'}</span>
+                    <div className="shrink-0 text-right">
+                      {s.effective_monthly != null
+                        ? <span className="text-xs font-semibold text-indigo-600 tabular-nums">{inr(s.effective_monthly)}<span className="font-normal text-muted-foreground">/mo</span></span>
+                        : null}
+                    </div>
                   </div>
                 ))}
+                {item.students_fee_sum != null && (
+                  <div className="flex justify-between px-3 py-2 bg-muted/30 text-xs font-semibold">
+                    <span>Total fee pool</span>
+                    <span className="tabular-nums">{inr(item.students_fee_sum)}</span>
+                  </div>
+                )}
               </div>
+              {item.students_fee_sum != null && item.commission_rate != null && item.session_cap != null && (
+                <p className="text-[11px] text-muted-foreground mt-1.5 px-1 leading-relaxed">
+                  Formula: {inr(item.students_fee_sum)} × {item.commission_rate}% ÷ {item.session_cap} cap × {item.sessions_completed ?? 0} sessions = <span className="font-semibold text-green-700">{inr(item.trainer_earns)}</span>
+                </p>
+              )}
             </div>
           )}
           {isIndividual && (item.students ?? []).length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-2">No sessions recorded for any student in this cycle yet.</p>
           )}
 
-          <div className="flex justify-end pt-2">
-            <Button size="sm" className="h-8" disabled={settle.isPending} onClick={handleSettle}>
+          <div className="flex justify-between items-center pt-2">
+            {isIndividual && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => setAddSessionOpen(true)}
+                disabled={settle.isPending}
+              >
+                <PlusCircle className="size-3 mr-1.5" />
+                Add Session
+              </Button>
+            )}
+            <Button size="sm" className="h-8 ml-auto" disabled={settle.isPending} onClick={handleSettle}>
               {settle.isPending ? <Loader2 className="size-3 animate-spin mr-1.5" /> : null}
               Settle Amount
             </Button>
           </div>
         </div>
+      )}
+
+      {addSessionOpen && (
+        <AddSessionToCycleModal
+          professionalId={professionalId}
+          item={item}
+          onClose={() => setAddSessionOpen(false)}
+        />
       )}
     </div>
   );
@@ -494,6 +733,724 @@ function PayoutsTab({ professionalId }) {
   );
 }
 
+// ─── PT Cycle Settlement tab (teachers only) ──────────────────────────────────
+
+const CYCLE_STATUS_COLORS = {
+  pending:  'bg-amber-100 text-amber-800',
+  settled:  'bg-green-100 text-green-800',
+  paid:     'bg-blue-100 text-blue-800',
+};
+
+function PtCycleCard({ cycle, professionalId }) {
+  const settle = useSettlePtCycle();
+  const [confirming, setConfirming] = useState(false);
+
+  async function handleSettle() {
+    try {
+      await settle.mutateAsync({ cycleId: cycle.cycle_id, professional_id: professionalId });
+      toast.success(`Cycle settled — ₹${Number(cycle.commission_amount).toLocaleString('en-IN')} credited`);
+      setConfirming(false);
+    } catch (err) {
+      toast.error(err?.response?.data?.message ?? 'Failed to settle cycle');
+    }
+  }
+
+  return (
+    <div className={`rounded-lg border p-3 text-sm space-y-2 ${cycle.status === 'pending' ? 'border-amber-200 bg-amber-50/30' : 'bg-muted/20'}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">
+          {fmtDate(cycle.cycle_start)} → {fmtDate(cycle.cycle_end)}
+        </span>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CYCLE_STATUS_COLORS[cycle.status] ?? ''}`}>
+          {cycle.status}
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <p className="text-muted-foreground">Attended</p>
+          <p className="font-semibold">{cycle.sessions_attended}/{cycle.sessions_allocated}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Absent</p>
+          <p className="font-semibold">{cycle.sessions_absent}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Upcoming</p>
+          <p className="font-semibold">{cycle.sessions_upcoming}</p>
+        </div>
+      </div>
+      <div className="flex items-center justify-between pt-1 border-t">
+        <div className="text-xs">
+          <span className="text-muted-foreground">{inr(cycle.base_amount)} × {cycle.commission_rate}% = </span>
+          <span className="font-bold text-green-700">{inr(cycle.commission_amount)}</span>
+        </div>
+        {cycle.status === 'pending' && (
+          confirming ? (
+            <div className="flex gap-1.5">
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setConfirming(false)}>Back</Button>
+              <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" onClick={handleSettle} disabled={settle.isPending}>
+                {settle.isPending ? <Loader2 className="size-3 animate-spin" /> : 'Confirm'}
+              </Button>
+            </div>
+          ) : (
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setConfirming(true)}>
+              Settle Cycle
+            </Button>
+          )
+        )}
+        {cycle.status === 'settled' && cycle.settled_at && (
+          <span className="text-xs text-muted-foreground">Settled {fmtDate(cycle.settled_at)}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Build a set of allowed date ranges from cycles for date picker restriction
+function buildAllowedRanges(cycles) {
+  return (cycles ?? []).map((c) => ({ start: c.cycle_start, end: c.cycle_end }));
+}
+
+function isDateInRanges(dateStr, ranges) {
+  return ranges.some((r) => dateStr >= r.start && dateStr <= r.end);
+}
+
+// ─── PT Add Session Modal ─────────────────────────────────────────────────────
+
+function PtAddSessionModal({ professionalId, studentId, activityId, activityName, studentName, cycles, onClose }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({ scheduled_date: today, start_time: '', end_time: '' });
+  const [dateError, setDateError] = useState('');
+  const [isPending, setIsPending] = useState(false);
+
+  const allowedRanges = buildAllowedRanges(cycles);
+
+  function set(field, value) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (field === 'scheduled_date') setDateError('');
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (form.start_time >= form.end_time) { toast.error('End time must be after start time'); return; }
+    setIsPending(true);
+    try {
+      await api.post('/admin/sessions', {
+        session_type: 'personal_tutor',
+        student_id: studentId,
+        professional_id: professionalId,
+        scheduled_date: form.scheduled_date,
+        start_time: form.start_time,
+        end_time: form.end_time,
+        activity_id: activityId,
+      });
+      toast.success('Session added');
+      onClose();
+    } catch (err) {
+      const code = err?.response?.data?.code;
+      const msg  = err?.response?.data?.message ?? 'Failed to add session';
+      if (code === 'DATE_OUTSIDE_CYCLE') {
+        setDateError(msg);
+      } else if (code === 'PROFESSIONAL_CONFLICT') {
+        toast.error('Professional already has a session at that time.');
+      } else if (code === 'STUDENT_CONFLICT') {
+        toast.error('Student already has a session at that time.');
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setIsPending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6">
+      <div className="bg-background rounded-xl shadow-2xl w-full max-w-md">
+        <div className="px-5 py-4 border-b flex items-center justify-between">
+          <div>
+            <h4 className="font-bold text-sm">Add Session</h4>
+            <p className="text-xs text-muted-foreground">Personal Tutor · {studentName} · {activityName}</p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-muted rounded text-muted-foreground"><X className="size-4" /></button>
+        </div>
+        {allowedRanges.length > 0 && (
+          <div className="mx-5 mt-4 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700">
+            Allowed dates: {allowedRanges.map((r) => `${fmtDate(r.start)} – ${fmtDate(r.end)}`).join(', ')}
+          </div>
+        )}
+        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Session Date</label>
+            <input
+              type="date"
+              value={form.scheduled_date}
+              onChange={(e) => set('scheduled_date', e.target.value)}
+              className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring ${dateError ? 'border-red-400' : ''}`}
+              required
+            />
+            {dateError && <p className="text-xs text-red-600 mt-1">{dateError}</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Start Time</label>
+              <input type="time" value={form.start_time} onChange={(e) => set('start_time', e.target.value)} className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" required />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">End Time</label>
+              <input type="time" value={form.end_time} onChange={(e) => set('end_time', e.target.value)} className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" required />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={isPending}>Cancel</Button>
+            <Button type="submit" size="sm" disabled={isPending}>
+              {isPending && <Loader2 className="size-3 animate-spin mr-1.5" />}
+              Add Session
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── PT Extend Cycle button ───────────────────────────────────────────────────
+
+function ExtendCycleButton({ personalTutorId, professionalId, type }) {
+  const extendPt = useExtendPtCycle();
+  const extendIc = useExtendIcCycle();
+  const [confirming, setConfirming] = useState(false);
+  const mut = type === 'pt' ? extendPt : extendIc;
+
+  async function handleExtend() {
+    try {
+      const res = type === 'pt'
+        ? await extendPt.mutateAsync({ personalTutorId, professionalId })
+        : await extendIc.mutateAsync({ individualParticipantId: personalTutorId, professionalId });
+      const nc = res?.new_cycle;
+      toast.success(nc
+        ? `New cycle created: ${fmtDate(nc.cycle_start)} – ${fmtDate(nc.cycle_end)} · ${nc.sessions_generated} sessions`
+        : 'New cycle created');
+      setConfirming(false);
+    } catch (err) {
+      const code = err?.response?.data?.code;
+      if (code === 'CYCLE_ALREADY_EXISTS') {
+        toast.error(err.response.data.message);
+      } else {
+        toast.error(err?.response?.data?.message ?? 'Failed to extend cycle');
+      }
+      setConfirming(false);
+    }
+  }
+
+  if (confirming) {
+    return (
+      <div className="flex gap-1.5">
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setConfirming(false)}>Back</Button>
+        <Button size="sm" className="h-7 text-xs" onClick={handleExtend} disabled={mut.isPending}>
+          {mut.isPending ? <Loader2 className="size-3 animate-spin" /> : 'Confirm'}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Button size="sm" variant="outline" className="h-7 text-xs text-indigo-700 border-indigo-300 hover:bg-indigo-50" onClick={() => setConfirming(true)}>
+      + Add New Cycle
+    </Button>
+  );
+}
+
+// ─── PT Activity section (per-activity inside expanded student) ───────────────
+
+function PtActivitySection({ activity, professionalId, studentId, studentName }) {
+  const [addSessionOpen, setAddSessionOpen] = useState(false);
+  const settle = useSettlePtCycle();
+  const [confirming, setConfirming] = useState(null);
+
+  async function handleSettle(cycle) {
+    try {
+      await settle.mutateAsync({ cycleId: cycle.cycle_id, professional_id: professionalId });
+      toast.success(`Cycle settled — ${inr(cycle.commission_amount)} credited`);
+      setConfirming(null);
+    } catch (err) {
+      toast.error(err?.response?.data?.message ?? 'Failed to settle cycle');
+    }
+  }
+
+  const canSettle = (cycle) => cycle.status === 'pending' && cycle.sessions_upcoming === 0;
+
+  return (
+    <div className="space-y-2">
+      {/* Activity header row */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{activity.activity_name}</p>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{activity.term_months}mo · {fmtDate(activity.membership_start)} – {fmtDate(activity.membership_end)}</span>
+          <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-emerald-700 border-emerald-300 hover:bg-emerald-50" onClick={() => setAddSessionOpen(true)}>
+            + Add Session
+          </Button>
+          <ExtendCycleButton personalTutorId={activity.personal_tutor_id} professionalId={professionalId} type="pt" />
+        </div>
+      </div>
+
+      {/* Cycles */}
+      {activity.cycles.map((cycle) => (
+        <div key={cycle.cycle_id} className={`rounded-lg border p-3 text-sm space-y-2 ${cycle.status === 'pending' ? 'border-amber-200 bg-amber-50/30' : 'bg-muted/20'}`}>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">{fmtDate(cycle.cycle_start)} → {fmtDate(cycle.cycle_end)}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CYCLE_STATUS_COLORS[cycle.status] ?? ''}`}>{cycle.status}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div><p className="text-muted-foreground">Attended</p><p className="font-semibold">{cycle.sessions_attended}/{cycle.sessions_allocated}</p></div>
+            <div><p className="text-muted-foreground">Absent</p><p className="font-semibold">{cycle.sessions_absent}</p></div>
+            <div><p className="text-muted-foreground">Upcoming</p><p className="font-semibold">{cycle.sessions_upcoming}</p></div>
+          </div>
+          <div className="flex items-center justify-between pt-1 border-t">
+            <div className="text-xs">
+              <span className="text-muted-foreground">{inr(cycle.base_amount)} × {cycle.commission_rate}% = </span>
+              <span className="font-bold text-green-700">{inr(cycle.commission_amount)}</span>
+            </div>
+            {cycle.status === 'pending' && (
+              confirming === cycle.cycle_id ? (
+                <div className="flex gap-1.5">
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setConfirming(null)}>Back</Button>
+                  <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" onClick={() => handleSettle(cycle)} disabled={settle.isPending}>
+                    {settle.isPending ? <Loader2 className="size-3 animate-spin" /> : 'Confirm'}
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="sm" variant="outline" className="h-7 text-xs"
+                  onClick={() => setConfirming(cycle.cycle_id)}
+                  disabled={!canSettle(cycle)}
+                  title={!canSettle(cycle) ? `${cycle.sessions_upcoming} sessions still upcoming` : undefined}
+                >
+                  Settle Cycle
+                </Button>
+              )
+            )}
+            {cycle.status === 'settled' && cycle.settled_at && <span className="text-xs text-muted-foreground">Settled {fmtDate(cycle.settled_at)}</span>}
+            {cycle.status === 'paid' && <span className="text-xs text-blue-700 font-medium">Paid</span>}
+          </div>
+        </div>
+      ))}
+
+      {addSessionOpen && (
+        <PtAddSessionModal
+          professionalId={professionalId}
+          studentId={studentId}
+          activityId={activity.activity_id}
+          activityName={activity.activity_name}
+          studentName={studentName}
+          cycles={activity.cycles}
+          onClose={() => setAddSessionOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PtSettlementTab({ professionalId }) {
+  const { data, isLoading } = usePtSettlement(professionalId);
+  const [expandedStudent, setExpandedStudent] = useState(null);
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
+
+  const students = data?.students ?? [];
+  if (students.length === 0) return <p className="text-sm text-muted-foreground text-center py-12">No personal tutor students assigned to this teacher.</p>;
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+        <p className="text-xs text-blue-700 font-medium leading-relaxed">
+          PT settlement cycles are auto-created when sessions are generated. Each cycle covers one month per activity. Settle a cycle to credit the teacher's wallet.
+        </p>
+      </div>
+      {students.map((student) => (
+        <div key={student.student_id} className="border rounded-lg overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+            onClick={() => setExpandedStudent(expandedStudent === student.student_id ? null : student.student_id)}
+          >
+            <div>
+              <p className="font-semibold text-sm">{student.name}</p>
+              <p className="text-xs text-muted-foreground">{student.mobile}</p>
+            </div>
+            <ChevronRight className={`size-4 text-muted-foreground transition-transform ${expandedStudent === student.student_id ? 'rotate-90' : ''}`} />
+          </button>
+          {expandedStudent === student.student_id && (
+            <div className="p-3 space-y-4">
+              {student.activities.map((activity) => (
+                <PtActivitySection
+                  key={activity.activity_id}
+                  activity={activity}
+                  professionalId={professionalId}
+                  studentId={student.student_id}
+                  studentName={student.name}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Shared cycle card (IC / Batch) ──────────────────────────────────────────
+
+function CycleCard({ cycle, onSettle, settling }) {
+  const [confirming, setConfirming] = useState(false);
+  const canSettle = cycle.status === 'pending' && cycle.sessions_upcoming === 0;
+
+  const tooltip = cycle.status === 'pending' && cycle.sessions_upcoming > 0
+    ? `${cycle.sessions_upcoming} sessions still upcoming — settle once cycle is complete`
+    : null;
+
+  return (
+    <div className={`rounded-lg border p-3 text-sm space-y-2 ${cycle.status === 'pending' ? 'border-amber-200 bg-amber-50/30' : 'bg-muted/20'}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">{fmtDate(cycle.cycle_start)} → {fmtDate(cycle.cycle_end)}</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CYCLE_STATUS_COLORS[cycle.status] ?? ''}`}>{cycle.status}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div><p className="text-muted-foreground">Attended</p><p className="font-semibold">{cycle.sessions_attended}/{cycle.sessions_allocated}</p></div>
+        <div><p className="text-muted-foreground">Absent</p><p className="font-semibold">{cycle.sessions_absent ?? '—'}</p></div>
+        <div><p className="text-muted-foreground">Upcoming</p><p className="font-semibold">{cycle.sessions_upcoming ?? 0}</p></div>
+      </div>
+      <div className="flex items-center justify-between pt-1 border-t">
+        <div className="text-xs">
+          <span className="text-muted-foreground">{inr(cycle.base_amount)} × {cycle.commission_rate}% = </span>
+          <span className="font-bold text-green-700">{inr(cycle.commission_amount)}</span>
+        </div>
+        {cycle.status === 'pending' && (
+          confirming ? (
+            <div className="flex gap-1.5">
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setConfirming(false)}>Back</Button>
+              <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" onClick={() => { onSettle(cycle); setConfirming(false); }} disabled={settling}>
+                {settling ? <Loader2 className="size-3 animate-spin" /> : 'Confirm'}
+              </Button>
+            </div>
+          ) : (
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setConfirming(true)} disabled={!canSettle} title={tooltip ?? undefined}>
+              Settle Cycle
+            </Button>
+          )
+        )}
+        {cycle.status === 'settled' && cycle.settled_at && (
+          <span className="text-xs text-muted-foreground">Settled {fmtDate(cycle.settled_at)}</span>
+        )}
+        {cycle.status === 'paid' && (
+          <span className="text-xs text-blue-700 font-medium">Paid</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── IC Settlement tab ────────────────────────────────────────────────────────
+
+function IcStudentSection({ student, professionalId }) {
+  const settle = useSettleIcCycle();
+  const [addSessionOpen, setAddSessionOpen] = useState(false);
+  const [confirming, setConfirming] = useState(null);
+  const [dateError, setDateError] = useState('');
+  const [isPending, setIsPending] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({ scheduled_date: today, start_time: '', end_time: '' });
+
+  const allowedRanges = buildAllowedRanges(student.cycles);
+  const canSettle = (cycle) => cycle.status === 'pending' && cycle.sessions_upcoming === 0;
+
+  async function handleSettle(cycle) {
+    try {
+      await settle.mutateAsync({ cycleId: cycle.cycle_id, professional_id: professionalId });
+      toast.success(`Cycle settled — ${inr(cycle.commission_amount)} credited`);
+      setConfirming(null);
+    } catch (err) {
+      toast.error(err?.response?.data?.message ?? 'Failed to settle cycle');
+    }
+  }
+
+  async function handleAddSession(e) {
+    e.preventDefault();
+    if (form.start_time >= form.end_time) { toast.error('End time must be after start time'); return; }
+    setIsPending(true);
+    try {
+      await api.post('/admin/sessions', {
+        session_type: 'individual_coaching',
+        student_id: student.student_id,
+        professional_id: professionalId,
+        scheduled_date: form.scheduled_date,
+        start_time: form.start_time,
+        end_time: form.end_time,
+        activity_id: student.activity_id,
+      });
+      toast.success('Session added');
+      setAddSessionOpen(false);
+    } catch (err) {
+      const code = err?.response?.data?.code;
+      const msg  = err?.response?.data?.message ?? 'Failed to add session';
+      if (code === 'DATE_OUTSIDE_CYCLE') { setDateError(msg); }
+      else { toast.error(msg); }
+    } finally { setIsPending(false); }
+  }
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      {/* Student header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-muted/30">
+        <div>
+          <p className="font-semibold text-sm">{student.student_name}</p>
+          <p className="text-xs text-muted-foreground">{student.activity_name}</p>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-emerald-700 border-emerald-300 hover:bg-emerald-50" onClick={() => setAddSessionOpen((v) => !v)}>
+            + Add Session
+          </Button>
+          <ExtendCycleButton personalTutorId={student.individual_participant_id} professionalId={professionalId} type="ic" />
+        </div>
+      </div>
+
+      {/* Add session inline form */}
+      {addSessionOpen && (
+        <form onSubmit={handleAddSession} className="px-4 py-3 border-t bg-muted/10 space-y-3">
+          {allowedRanges.length > 0 && (
+            <p className="text-xs text-blue-700">Allowed: {allowedRanges.map((r) => `${fmtDate(r.start)} – ${fmtDate(r.end)}`).join(', ')}</p>
+          )}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Date</label>
+              <input type="date" value={form.scheduled_date} onChange={(e) => { setForm((f) => ({ ...f, scheduled_date: e.target.value })); setDateError(''); }} className={`w-full rounded border px-2 py-1.5 text-xs focus:outline-none ${dateError ? 'border-red-400' : ''}`} required />
+              {dateError && <p className="text-[11px] text-red-600">{dateError}</p>}
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Start</label>
+              <input type="time" value={form.start_time} onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))} className="w-full rounded border px-2 py-1.5 text-xs focus:outline-none" required />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">End</label>
+              <input type="time" value={form.end_time} onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))} className="w-full rounded border px-2 py-1.5 text-xs focus:outline-none" required />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => setAddSessionOpen(false)}>Cancel</Button>
+            <Button type="submit" size="sm" className="h-7 text-xs" disabled={isPending}>
+              {isPending && <Loader2 className="size-3 animate-spin mr-1" />} Add
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {/* Cycles */}
+      <div className="p-3 space-y-2">
+        {student.cycles.map((cycle) => (
+          <div key={cycle.cycle_id} className={`rounded-lg border p-3 text-sm space-y-2 ${cycle.status === 'pending' ? 'border-amber-200 bg-amber-50/30' : 'bg-muted/20'}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">{fmtDate(cycle.cycle_start)} → {fmtDate(cycle.cycle_end)}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CYCLE_STATUS_COLORS[cycle.status] ?? ''}`}>{cycle.status}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div><p className="text-muted-foreground">Attended</p><p className="font-semibold">{cycle.sessions_attended}/{cycle.sessions_allocated}</p></div>
+              <div><p className="text-muted-foreground">Absent</p><p className="font-semibold">{cycle.sessions_absent ?? '—'}</p></div>
+              <div><p className="text-muted-foreground">Upcoming</p><p className="font-semibold">{cycle.sessions_upcoming ?? 0}</p></div>
+            </div>
+            <div className="flex items-center justify-between pt-1 border-t">
+              <div className="text-xs">
+                <span className="text-muted-foreground">{inr(cycle.base_amount)} × {cycle.commission_rate}% = </span>
+                <span className="font-bold text-green-700">{inr(cycle.commission_amount)}</span>
+              </div>
+              {cycle.status === 'pending' && (
+                confirming === cycle.cycle_id ? (
+                  <div className="flex gap-1.5">
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setConfirming(null)}>Back</Button>
+                    <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" onClick={() => handleSettle(cycle)} disabled={settle.isPending}>
+                      {settle.isPending ? <Loader2 className="size-3 animate-spin" /> : 'Confirm'}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setConfirming(cycle.cycle_id)} disabled={!canSettle(cycle)} title={!canSettle(cycle) ? `${cycle.sessions_upcoming} sessions still upcoming` : undefined}>
+                    Settle Cycle
+                  </Button>
+                )
+              )}
+              {cycle.status === 'settled' && cycle.settled_at && <span className="text-xs text-muted-foreground">Settled {fmtDate(cycle.settled_at)}</span>}
+              {cycle.status === 'paid' && <span className="text-xs text-blue-700 font-medium">Paid</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function IcSettlementTab({ professionalId }) {
+  const { data, isLoading } = useIcSettlement(professionalId);
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
+
+  const students = data?.students ?? [];
+  if (students.length === 0) return <p className="text-sm text-muted-foreground text-center py-12">No individual coaching students assigned to this trainer.</p>;
+
+  return (
+    <div className="p-4 space-y-3">
+      {students.map((student) => (
+        <IcStudentSection key={student.student_id} student={student} professionalId={professionalId} />
+      ))}
+    </div>
+  );
+}
+
+// ─── Batch Settlement tab (society or school) ─────────────────────────────────
+
+function ExtendBatchCycleButton({ batchId, professionalId, type }) {
+  const extend = useExtendBatchCycle();
+  const [confirming, setConfirming] = useState(false);
+
+  async function handleExtend() {
+    try {
+      const res = await extend.mutateAsync({ batchId });
+      const nc = res?.new_cycle;
+      toast.success(nc
+        ? `New cycle: ${fmtDate(nc.cycle_start)} – ${fmtDate(nc.cycle_end)} · ${nc.sessions_generated} sessions`
+        : 'New cycle created');
+      setConfirming(false);
+    } catch (err) {
+      const code = err?.response?.data?.code;
+      if (code === 'CYCLE_ALREADY_EXISTS') toast.error(err.response.data.message);
+      else toast.error(err?.response?.data?.message ?? 'Failed to extend cycle');
+      setConfirming(false);
+    }
+  }
+
+  if (confirming) {
+    return (
+      <div className="flex gap-1">
+        <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => setConfirming(false)}>Back</Button>
+        <Button size="sm" className="h-6 text-xs px-2" onClick={handleExtend} disabled={extend.isPending}>
+          {extend.isPending ? <Loader2 className="size-3 animate-spin" /> : 'Confirm'}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-indigo-700 border-indigo-300 hover:bg-indigo-50" onClick={() => setConfirming(true)}>
+      + Add New Cycle
+    </Button>
+  );
+}
+
+function BatchSettlementTab({ professionalId, type }) {
+  const { data: societyData, isLoading: societyLoading } = useSocietySettlement(type === 'society' ? professionalId : null);
+  const { data: schoolData, isLoading: schoolLoading } = useSchoolSettlement(type === 'school' ? professionalId : null);
+  const settle = useSettleBatchCycle();
+
+  const isLoading = type === 'society' ? societyLoading : schoolLoading;
+  const rawData = type === 'society' ? societyData : schoolData;
+  const entities = rawData?.entities ?? [];
+
+  const [expandedEntity, setExpandedEntity] = useState(null);
+  const [expandedBatch, setExpandedBatch] = useState(null);
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
+  if (entities.length === 0) return <p className="text-sm text-muted-foreground text-center py-12">No {type === 'society' ? 'society' : 'school'} batches found for this trainer.</p>;
+
+  async function handleSettle(cycle) {
+    try {
+      await settle.mutateAsync({ cycleId: cycle.cycle_id, professionalId });
+      toast.success(`Cycle settled — ${inr(cycle.commission_amount)} credited`);
+    } catch (err) {
+      toast.error(err?.response?.data?.message ?? 'Failed to settle cycle');
+    }
+  }
+
+  return (
+    <div className="p-4 space-y-3">
+      {entities.map((entity) => (
+        <div key={entity.id} className="border rounded-lg overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+            onClick={() => setExpandedEntity(expandedEntity === entity.id ? null : entity.id)}
+          >
+            <p className="font-semibold text-sm">{entity.name}</p>
+            <ChevronRight className={`size-4 text-muted-foreground transition-transform ${expandedEntity === entity.id ? 'rotate-90' : ''}`} />
+          </button>
+          {expandedEntity === entity.id && (
+            <div className="p-3 space-y-4">
+              {entity.activities.map((activity) => (
+                <div key={activity.activity_id} className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{activity.activity_name}</p>
+                  {activity.batches.map((batch) => {
+                    const batchKey = `${entity.id}-${batch.batch_id}`;
+                    return (
+                      <div key={batch.batch_id} className="border rounded-md overflow-hidden">
+                        <div className="flex items-center justify-between px-3 py-2 bg-muted/20">
+                          <button
+                            className="flex-1 text-left text-sm font-medium"
+                            onClick={() => setExpandedBatch(expandedBatch === batchKey ? null : batchKey)}
+                          >
+                            {batch.batch_name ?? `Batch #${batch.batch_id}`}
+                          </button>
+                          <div className="flex items-center gap-2">
+                            <ExtendBatchCycleButton batchId={batch.batch_id} professionalId={professionalId} type={type} />
+                            <ChevronRight
+                              className={`size-3.5 text-muted-foreground transition-transform cursor-pointer ${expandedBatch === batchKey ? 'rotate-90' : ''}`}
+                              onClick={() => setExpandedBatch(expandedBatch === batchKey ? null : batchKey)}
+                            />
+                          </div>
+                        </div>
+                        {expandedBatch === batchKey && (
+                          <div className="p-2 space-y-2">
+                            {batch.cycles.map((cycle) => (
+                              <CycleCard key={cycle.cycle_id} cycle={cycle} onSettle={handleSettle} settling={settle.isPending} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Trainer settlement wrapper (3 sub-tabs) ──────────────────────────────────
+
+function TrainerSettlementTabs({ professionalId }) {
+  const [subTab, setSubTab] = useState('ic');
+  const subTabs = [
+    ['ic', 'Individual Coaching'],
+    ['society', 'Society Batches'],
+    ['school', 'School Batches'],
+  ];
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex border-b px-4 gap-1">
+        {subTabs.map(([key, lbl]) => (
+          <button
+            key={key}
+            onClick={() => setSubTab(key)}
+            className={`px-3 py-2 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${subTab === key ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {subTab === 'ic' && <IcSettlementTab professionalId={professionalId} />}
+        {subTab === 'society' && <BatchSettlementTab professionalId={professionalId} type="society" />}
+        {subTab === 'school' && <BatchSettlementTab professionalId={professionalId} type="school" />}
+      </div>
+    </div>
+  );
+}
+
 // ─── Professional detail drawer ───────────────────────────────────────────────
 
 function SessionsSettleTab({ professionalId, profType }) {
@@ -750,16 +1707,18 @@ function ProfessionalDetailDrawer({ record, profType, onClose }) {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b">
+        <div className="flex border-b overflow-x-auto">
           {[
             ['profile', 'Profile'],
-            ['sessions', tab1Label],
+            ...(profType === 'trainer' ? [['settlement', 'Settlement']] : []),
+            ...(profType === 'teacher' ? [['pt-cycles', 'PT Cycles']] : []),
+            ...(['marketing_executive', 'vendor'].includes(profType) ? [['sessions', tab1Label]] : []),
             ['payouts', 'Payouts']
           ].map(([key, lbl]) => (
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              className={`px-5 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
                 tab === key ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -771,6 +1730,8 @@ function ProfessionalDetailDrawer({ record, profType, onClose }) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
           {tab === 'profile' && <ProfileTab record={record} profType={profType} documents={documents} docsLoading={profDetailLoading} />}
+          {tab === 'settlement' && profType === 'trainer' && <TrainerSettlementTabs professionalId={pid} />}
+          {tab === 'pt-cycles' && profType === 'teacher' && <PtSettlementTab professionalId={pid} />}
           {tab === 'sessions' && <SessionsSettleTab professionalId={pid} profType={profType} />}
           {tab === 'payouts' && <div className="p-4"><PayoutsTab professionalId={pid} /></div>}
         </div>

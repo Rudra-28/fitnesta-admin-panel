@@ -37,6 +37,8 @@ import {
   useAssignTeacher,
   useAssignTrainer,
   useProfessionals,
+  useCreateBatchSession,
+  useExtendBatchCycle,
 } from '@/hooks/useAdmin';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/api/axios';
@@ -1867,6 +1869,105 @@ function SessionRow({ session, sessionType }) {
   );
 }
 
+function AddSessionToGroupModal({ sessionType, group, student, onClose }) {
+  const createBatchSession = useCreateBatchSession();
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({ scheduled_date: today, start_time: '', end_time: '' });
+  const [dateError, setDateError] = useState('');
+
+  const professionalId = group.professional_id;
+  const batchId = group.batch_id ?? group.membership?.batch_id ?? null;
+
+  // Build allowed date ranges from cycles for banner
+  const cycles = group.cycles ?? [];
+  const allowedRanges = cycles.map((c) => ({ start: c.cycle_start, end: c.cycle_end }));
+  const fmtD = (iso) => iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
+
+  function set(field, value) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (field === 'scheduled_date') setDateError('');
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (form.start_time >= form.end_time) { toast.error('End time must be after start time'); return; }
+    try {
+      await createBatchSession.mutateAsync({
+        batchId,
+        scheduled_date: form.scheduled_date,
+        start_time: form.start_time,
+        end_time: form.end_time,
+        professional_id: professionalId,
+      });
+      toast.success('Session added');
+      onClose();
+    } catch (err) {
+      const code = err?.response?.data?.code;
+      const msg  = err?.response?.data?.message ?? 'Failed to add session';
+      if (code === 'DATE_OUTSIDE_CYCLE') {
+        setDateError(msg);
+      } else if (code === 'PROFESSIONAL_CONFLICT') {
+        toast.error('Professional already has a session at that time.');
+      } else {
+        toast.error(msg);
+      }
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6">
+      <div className="bg-background rounded-xl shadow-2xl w-full max-w-md">
+        <div className="px-5 py-4 border-b flex items-center justify-between">
+          <div>
+            <h4 className="font-bold text-sm">Add Session</h4>
+            <p className="text-xs text-muted-foreground">
+              {student.student_name} · {group.activity_name ?? group.batch_label ?? '—'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-muted rounded text-muted-foreground">✕</button>
+        </div>
+
+        {allowedRanges.length > 0 && (
+          <div className="mx-5 mt-4 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700">
+            Allowed dates: {allowedRanges.map((r) => `${fmtD(r.start)} – ${fmtD(r.end)}`).join(', ')}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Session Date</label>
+            <input
+              type="date"
+              value={form.scheduled_date}
+              onChange={(e) => set('scheduled_date', e.target.value)}
+              className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring ${dateError ? 'border-red-400' : ''}`}
+              required
+            />
+            {dateError && <p className="text-xs text-red-600 mt-1">{dateError}</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Start Time</label>
+              <input type="time" value={form.start_time} onChange={(e) => set('start_time', e.target.value)} className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" required />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">End Time</label>
+              <input type="time" value={form.end_time} onChange={(e) => set('end_time', e.target.value)} className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" required />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={createBatchSession.isPending}>Cancel</Button>
+            <Button type="submit" size="sm" disabled={createBatchSession.isPending}>
+              {createBatchSession.isPending && <Loader2 className="size-3 animate-spin mr-1.5" />}
+              Add Session
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function StudentSessionCard({ student, sessionType }) {
   const [expanded, setExpanded] = useState(false);
   const generate = useGenerateIndividualSessions();
@@ -1874,6 +1975,7 @@ function StudentSessionCard({ student, sessionType }) {
   const { data, isLoading } = useStudentBatches(studentId);
   const groups = data?.data ?? [];
   const [reassigningGroup, setReassigningGroup] = useState(null);
+  const [addingSessionGroup, setAddingSessionGroup] = useState(null);
 
   const isPT = sessionType === 'personal_tutor';
   const subLabel = isPT ? student.teacher_for : student.activity;
@@ -1973,6 +2075,16 @@ function StudentSessionCard({ student, sessionType }) {
                         Reassign Professional
                       </Button>
                     )}
+                    {(isPT || sessionType === 'individual_coaching') && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-[10px] text-emerald-700 border-emerald-300 hover:bg-emerald-50 ml-1 flex items-center gap-1.5"
+                        onClick={() => setAddingSessionGroup(group)}
+                      >
+                        + Add Session
+                      </Button>
+                    )}
                   </div>
                   {group.membership && (
                     <span className="text-xs text-muted-foreground">
@@ -1994,6 +2106,14 @@ function StudentSessionCard({ student, sessionType }) {
                   assignmentId={group.id ?? group.personal_tutor_id ?? group.individual_participant_id}
                   currentProfessionalId={group.professional_id}
                   onClose={() => setReassigningGroup(null)}
+                />
+              )}
+              {addingSessionGroup === group && (
+                <AddSessionToGroupModal
+                  sessionType={sessionType}
+                  group={group}
+                  student={student}
+                  onClose={() => setAddingSessionGroup(null)}
                 />
               )}
               {/* Sessions table */}

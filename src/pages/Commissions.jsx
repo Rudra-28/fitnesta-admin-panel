@@ -648,19 +648,233 @@ function TrainerAssignmentsTab() {
   );
 }
 
+// ─── Settlement card sub-components ─────────────────────────────────────────
+
+const CARD_TYPE_CONFIG = {
+  society:            { label: 'Group Coaching · Society', accent: 'blue'   },
+  school:             { label: 'Group Coaching · School',  accent: 'violet' },
+  individual_coaching:{ label: 'Individual Coaching',      accent: 'emerald'},
+  personal_tutor:     { label: 'Personal Tutor',           accent: 'amber'  },
+};
+
+const ACCENT_CLASSES = {
+  blue:    { border: 'border-blue-200 dark:border-blue-800',     badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',    header: 'bg-blue-50 dark:bg-blue-900/10'   },
+  violet:  { border: 'border-violet-200 dark:border-violet-800', badge: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300', header: 'bg-violet-50 dark:bg-violet-900/10' },
+  emerald: { border: 'border-emerald-200 dark:border-emerald-800',badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',header: 'bg-emerald-50 dark:bg-emerald-900/10'},
+  amber:   { border: 'border-amber-200 dark:border-amber-800',   badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300', header: 'bg-amber-50 dark:bg-amber-900/10'  },
+};
+
+function SessionPill({ label, value, sub }) {
+  return (
+    <div className="text-center">
+      <div className="text-lg font-semibold tabular-nums leading-none">{value}</div>
+      <div className="text-[11px] text-muted-foreground mt-0.5">{label}</div>
+      {sub && <div className="text-[10px] text-amber-600 font-medium">{sub}</div>}
+    </div>
+  );
+}
+
+function CommissionBreakdown({ row }) {
+  if (row.is_flat_rate) {
+    return (
+      <div className="text-xs text-muted-foreground space-y-0.5">
+        <div>Flat rate: <span className="font-medium text-foreground">{inr(row.flat_amount_per_session)}/session</span></div>
+        <div>{row.sessions_completed} sessions × {inr(row.flat_amount_per_session)} = <span className="font-semibold text-foreground">{inr(row.trainer_earns)}</span></div>
+      </div>
+    );
+  }
+  return (
+    <div className="text-xs text-muted-foreground space-y-0.5">
+      <div>
+        Fee base: <span className="font-medium text-foreground">{inr(row.effective_fee_base)}</span>
+        {' · '}Rate: <span className="font-medium text-foreground">{row.commission_rate}%</span>
+        {' · '}Cap: <span className="font-medium text-foreground">{row.monthly_cap ?? row.effective_cap}</span>
+      </div>
+      <div>
+        {inr(row.effective_fee_base)} × {row.commission_rate}% ÷ {row.monthly_cap ?? row.effective_cap} = <span className="font-medium text-foreground">{inr(row.commission_per_session)}</span>/session
+      </div>
+      <div>
+        {row.sessions_completed} sessions × {inr(row.commission_per_session)} = <span className="font-semibold text-green-700 dark:text-green-400 text-sm">{inr(row.trainer_earns)}</span>
+      </div>
+    </div>
+  );
+}
+
+function StudentRow({ student, isGroup }) {
+  return (
+    <tr className="border-t border-border/50 text-sm">
+      <td className="py-1.5 pr-3">
+        <div className="font-medium">{student.name}</div>
+        {student.mobile && <div className="text-xs text-muted-foreground">{student.mobile}</div>}
+      </td>
+      {isGroup && (
+        <td className="py-1.5 pr-3 text-xs text-muted-foreground">
+          {student.activity ?? '—'}
+        </td>
+      )}
+      {!isGroup && (
+        <td className="py-1.5 pr-3 text-xs text-muted-foreground">
+          {student.activity ?? '—'}
+        </td>
+      )}
+      <td className="py-1.5 pr-3 text-right tabular-nums text-xs">
+        {student.effective_monthly != null ? inr(student.effective_monthly) : '—'}
+      </td>
+      <td className="py-1.5 pr-3 text-right tabular-nums text-xs text-green-700 dark:text-green-400">
+        {student.sessions_completed ?? 0}
+      </td>
+      <td className="py-1.5 pr-3 text-right tabular-nums text-xs text-amber-600">
+        {student.sessions_absent ?? 0}
+      </td>
+      <td className="py-1.5 text-right tabular-nums text-xs text-muted-foreground">
+        {student.sessions_upcoming ?? 0}
+      </td>
+    </tr>
+  );
+}
+
+function SettlementCard({ row, selected, onToggle, onSettle, settling }) {
+  const cardType  = row.card_type ?? 'other';
+  const config    = CARD_TYPE_CONFIG[cardType] ?? { label: cardType, accent: 'blue' };
+  const accent    = ACCENT_CLASSES[config.accent];
+  const earns     = Number(row.trainer_earns ?? 0);
+  const zeroComm  = earns === 0;
+  const wasClamped = (row.sessions_completed_raw ?? row.sessions_completed ?? 0) > (row.sessions_completed ?? 0);
+  const isGroup   = cardType === 'society' || cardType === 'school';
+
+  return (
+    <div className={cn('rounded-xl border overflow-hidden', accent.border, zeroComm && 'opacity-60')}>
+      {/* Card header */}
+      <div className={cn('px-4 py-3 flex flex-wrap items-start justify-between gap-3', accent.header)}>
+        <div className="flex items-start gap-3">
+          {/* Checkbox */}
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            className="mt-0.5 rounded border-input shrink-0"
+          />
+          <div>
+            {/* Type badge */}
+            <span className={cn('inline-block rounded-full px-2 py-0.5 text-[11px] font-medium mb-1', accent.badge)}>
+              {config.label}
+            </span>
+            {/* Entity / Student name */}
+            <div className="font-semibold text-base leading-tight">
+              {isGroup ? (row.entity_name ?? '—') : (row.students?.[0]?.name ?? row.professional_name ?? '—')}
+            </div>
+            {/* Activity */}
+            <div className="text-sm text-muted-foreground">
+              {row.activity_name ?? '—'}
+              {isGroup && row.student_count != null && (
+                <span className="ml-2 text-xs">· {row.student_count} students</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Cycle + earns */}
+        <div className="text-right">
+          <div className={cn('text-xl font-bold tabular-nums', zeroComm ? 'text-muted-foreground' : 'text-green-700 dark:text-green-400')}>
+            {zeroComm ? '₹0' : inr(earns)}
+          </div>
+          <div className="text-xs text-muted-foreground">{row.session_cycle}</div>
+          {row.last_settled_at && (
+            <div className="text-xs text-muted-foreground">
+              Last settled: {new Date(row.last_settled_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Session breakdown pills */}
+      <div className="px-4 py-3 border-t border-border/50 flex flex-wrap items-center gap-6">
+        <SessionPill
+          label="Completed"
+          value={row.sessions_completed ?? 0}
+          sub={wasClamped ? `${row.sessions_completed_raw} actual → capped` : null}
+        />
+        <SessionPill label="Upcoming"  value={row.sessions_upcoming ?? 0} />
+        <SessionPill label="Absent"    value={row.sessions_absent ?? 0} />
+        <SessionPill label="Monthly Cap" value={row.monthly_cap ?? row.effective_cap ?? '—'} />
+        {(row.attendance_pct ?? 0) > 0 && (
+          <SessionPill label="Attendance" value={`${row.attendance_pct}%`} />
+        )}
+
+        <div className="ml-auto">
+          <CommissionBreakdown row={row} />
+        </div>
+      </div>
+
+      {/* Overdue warning */}
+      {wasClamped && (
+        <div className="mx-4 mb-2 inline-flex items-center gap-1.5 rounded bg-amber-100 dark:bg-amber-900/30 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="size-3.5 shrink-0" />
+          {row.overdue_warning}
+        </div>
+      )}
+
+      {/* Student table */}
+      {(row.students?.length ?? 0) > 0 && (
+        <div className="px-4 pb-3 border-t border-border/50">
+          <table className="w-full text-sm mt-2">
+            <thead>
+              <tr className="text-xs text-muted-foreground">
+                <th className="text-left py-1 pr-3 font-medium">Student</th>
+                <th className="text-left py-1 pr-3 font-medium">{isGroup ? 'Activity' : 'Subject / Activity'}</th>
+                <th className="text-right py-1 pr-3 font-medium">Eff. Monthly</th>
+                <th className="text-right py-1 pr-3 font-medium text-green-700 dark:text-green-400">Done</th>
+                <th className="text-right py-1 pr-3 font-medium text-amber-600">Absent</th>
+                <th className="text-right py-1 font-medium text-muted-foreground">Upcoming</th>
+              </tr>
+            </thead>
+            <tbody>
+              {row.students.map((s) => (
+                <StudentRow key={s.student_id} student={s} isGroup={isGroup} />
+              ))}
+              {/* Fee total row for group cards */}
+              {isGroup && (
+                <tr className="border-t border-border text-xs font-semibold">
+                  <td colSpan={2} className="pt-1.5 pr-3 text-muted-foreground">Total fee base</td>
+                  <td className="pt-1.5 pr-3 text-right tabular-nums">{inr(row.effective_fee_base)}</td>
+                  <td colSpan={3} />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Settle button */}
+      <div className="px-4 py-3 border-t border-border/50 flex justify-end">
+        <Button
+          size="sm"
+          disabled={settling || zeroComm}
+          onClick={onSettle}
+          className="bg-green-600 hover:bg-green-700 text-white"
+        >
+          {settling && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
+          <CheckCircle2 className="size-3.5 mr-1.5" />
+          Settle {zeroComm ? '(₹0)' : inr(earns)}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Tab 5: Settlement ───────────────────────────────────────────────────────
 
 function SettlementTab() {
   const [professionalId, setProfessionalId] = useState('');
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [selectAll, setSelectAll] = useState(false);
+  const [selectedIds, setSelectedIds]       = useState(new Set());
+  const [settlingId,  setSettlingId]        = useState(null);
 
   const filterPid = professionalId.trim() ? Number(professionalId.trim()) : undefined;
-  const { data: unsettledData } = useUnsettledCount();
+  const { data: unsettledData }            = useUnsettledCount();
   const { data, isLoading, isError, refetch } = useSettlementPreview(filterPid);
   const confirm = useConfirmSettlement();
 
-  const preview = data?.data ?? [];
+  const preview        = data?.data ?? [];
   const unsettledCount = unsettledData?.unsettled_count ?? 0;
 
   const toggleSelect = (id) => {
@@ -669,23 +883,27 @@ function SettlementTab() {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
-    setSelectAll(false);
   };
 
-  const handleSelectAll = () => {
-    if (selectAll) {
-      setSelectedIds(new Set());
-      setSelectAll(false);
-    } else {
-      setSelectedIds(new Set(preview.map((r) => r.assignment_id)));
-      setSelectAll(true);
-    }
+  // Settle a single card
+  const handleSettleOne = (row) => {
+    setSettlingId(row.assignment_id);
+    confirm.mutate(
+      { assignment_ids: [row.assignment_id] },
+      {
+        onSuccess: () => {
+          toast.success(`Settled: ${row.entity_name ?? row.students?.[0]?.name ?? 'assignment'}`);
+          refetch();
+        },
+        onError: (err) => toast.error(err.response?.data?.message ?? 'Settlement failed'),
+        onSettled: () => setSettlingId(null),
+      }
+    );
   };
 
-  const handleConfirm = () => {
-    const assignment_ids = selectAll || selectedIds.size === 0
-      ? undefined
-      : Array.from(selectedIds);
+  // Settle all selected (or all if none selected)
+  const handleSettleAll = () => {
+    const assignment_ids = selectedIds.size > 0 ? Array.from(selectedIds) : undefined;
     confirm.mutate(
       { assignment_ids },
       {
@@ -693,7 +911,6 @@ function SettlementTab() {
           const count = res?.count ?? (res?.data?.length ?? 0);
           toast.success(`Settlement confirmed for ${count} assignment(s)`);
           setSelectedIds(new Set());
-          setSelectAll(false);
           refetch();
         },
         onError: (err) => toast.error(err.response?.data?.message ?? 'Settlement failed'),
@@ -701,9 +918,16 @@ function SettlementTab() {
     );
   };
 
+  const rowsInScope = selectedIds.size > 0
+    ? preview.filter((r) => selectedIds.has(r.assignment_id))
+    : preview;
+
+  const totalEarns    = rowsInScope.reduce((s, r) => s + Number(r.trainer_earns ?? 0), 0);
+  const overdueCount  = rowsInScope.filter((r) => (r.sessions_completed_raw ?? r.sessions_completed ?? 0) > (r.sessions_completed ?? 0)).length;
+
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Header bar */}
       <div className="flex flex-wrap items-center gap-3">
         {unsettledCount > 0 && (
           <div className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm dark:border-amber-800 dark:bg-amber-900/20">
@@ -723,6 +947,7 @@ function SettlementTab() {
           />
         </div>
       </div>
+
       {isLoading ? (
         <LoadingState />
       ) : isError ? (
@@ -731,201 +956,60 @@ function SettlementTab() {
         <EmptyState message="Nothing to settle right now." />
       ) : (
         <>
+          {/* Formula banner */}
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300 space-y-1">
-            <div className="font-medium">How commission is calculated (monthly cycle)</div>
-            <div>
-              <span className="font-mono bg-blue-100 dark:bg-blue-900/40 rounded px-1 py-0.5 text-xs">
-                Earns = (Fee Base × Rate%) ÷ Monthly Cap × Sessions Counted
-              </span>
+            <div className="font-medium">Commission formula (monthly cycle)</div>
+            <div className="font-mono bg-blue-100 dark:bg-blue-900/40 rounded px-1.5 py-0.5 text-xs inline-block">
+              Earns = (Fee Base × Rate%) ÷ Monthly Cap × Sessions Counted
             </div>
             <div className="text-xs opacity-80">
-              Fee Base = sum of all students' effective monthly fees · Sessions Counted = capped at Monthly Cap · Settle every month for multi-month memberships.
+              Fee Base = Σ students' effective monthly fees · Sessions Counted capped at Monthly Cap · Settle monthly for multi-month memberships.
             </div>
           </div>
-          <div className="rounded-lg border overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">
-                    <input
-                      type="checkbox"
-                      checked={selectAll}
-                      onChange={handleSelectAll}
-                      className="rounded border-input"
-                    />
-                  </TableHead>
-                  <TableHead>Professional</TableHead>
-                  <TableHead>Type / Context</TableHead>
-                  <TableHead className="text-right">Sessions Counted</TableHead>
-                  <TableHead className="text-right">Monthly Cap</TableHead>
-                  <TableHead className="text-right">Fee Base</TableHead>
-                  <TableHead className="text-right">Rate</TableHead>
-                  <TableHead className="text-right">Per Session</TableHead>
-                  <TableHead className="text-right">Earns</TableHead>
-                  <TableHead>Cycle</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {preview.map((row) => {
-                  const amount = Number(row.trainer_earns ?? row.commission_amount ?? 0);
-                  const zeroComm = amount === 0;
-                  const rawCount = row.sessions_completed_raw ?? row.sessions_completed ?? row.sessions_attended ?? 0;
-                  const countedCount = row.sessions_completed ?? row.sessions_attended ?? 0;
-                  const wasClamped = rawCount > countedCount;
-                  const monthlyCap = row.total_sessions_allocated ?? row.session_cap ?? row.standard_sessions_cap ?? '—';
-                  const cycleLabel = row.session_cycle
-                    ?? (row.window_start
-                      ? `${new Date(row.window_start).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} – ${new Date(row.window_end ?? row.window_start).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
-                      : '—');
 
-                  return (
-                    <TableRow key={row.assignment_id} className={cn(zeroComm && 'opacity-60')}>
-                      <TableCell>
-                        <input
-                          type="checkbox"
-                          checked={selectAll || selectedIds.has(row.assignment_id)}
-                          onChange={() => toggleSelect(row.assignment_id)}
-                          className="rounded border-input"
-                        />
-                      </TableCell>
-
-                      {/* Professional */}
-                      <TableCell>
-                        <div className="font-medium text-sm">{row.professional_name}</div>
-                        <div className="text-xs text-muted-foreground capitalize">
-                          {row.professional_type?.replace('_', ' ')}
-                        </div>
-                        {row.professional_mobile && (
-                          <div className="text-xs text-muted-foreground">{row.professional_mobile}</div>
-                        )}
-                      </TableCell>
-
-                      {/* Type / Context */}
-                      <TableCell>
-                        <div className="text-xs text-muted-foreground">
-                          {ASSIGNMENT_TYPE_LABEL[row.assignment_type] ?? row.assignment_type}
-                        </div>
-                        <div className="text-sm">{row.entity_name ?? row.batch_info?.entity_name ?? '—'}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {row.activity_name ?? row.batch_info?.activity_name ?? '—'}
-                        </div>
-                      </TableCell>
-
-                      {/* Sessions Counted */}
-                      <TableCell className="text-right">
-                        <div className="tabular-nums font-medium text-sm">{countedCount}</div>
-                        {wasClamped && (
-                          <div className="text-xs text-amber-600 font-medium">
-                            {rawCount} actual → capped
-                          </div>
-                        )}
-                        {(row.absent_sessions ?? 0) > 0 && (
-                          <div className="text-xs text-muted-foreground">{row.absent_sessions} absent</div>
-                        )}
-                      </TableCell>
-
-                      {/* Monthly Cap */}
-                      <TableCell className="text-right tabular-nums text-sm">
-                        {monthlyCap}
-                        {row.is_flat_rate && (
-                          <div className="text-xs text-muted-foreground">flat rate</div>
-                        )}
-                      </TableCell>
-
-                      {/* Fee Base (sum of effective monthly fees) */}
-                      <TableCell className="text-right tabular-nums text-sm">
-                        {row.effective_fee_base != null ? inr(row.effective_fee_base) : '—'}
-                      </TableCell>
-
-                      {/* Commission Rate */}
-                      <TableCell className="text-right text-sm">
-                        {row.is_flat_rate
-                          ? <span className="text-muted-foreground">—</span>
-                          : `${Number(row.commission_rate)}%`}
-                      </TableCell>
-
-                      {/* Per Session */}
-                      <TableCell className="text-right tabular-nums text-sm">
-                        {row.commission_per_session != null ? inr(row.commission_per_session) : '—'}
-                        {row.is_flat_rate && (
-                          <div className="text-xs text-muted-foreground">
-                            {inr(row.flat_amount_per_session)}/session
-                          </div>
-                        )}
-                      </TableCell>
-
-                      {/* Earns */}
-                      <TableCell className="text-right tabular-nums font-semibold">
-                        {zeroComm ? (
-                          <span className="text-muted-foreground text-xs">₹0 — skipped</span>
-                        ) : (
-                          <span className="text-green-700 dark:text-green-400">{inr(amount)}</span>
-                        )}
-                      </TableCell>
-
-                      {/* Cycle */}
-                      <TableCell>
-                        <div className="text-xs text-muted-foreground whitespace-nowrap">{cycleLabel}</div>
-                        {row.last_settled_at && (
-                          <div className="text-xs text-muted-foreground">
-                            Last settled: {new Date(row.last_settled_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                          </div>
-                        )}
-                        {wasClamped && (
-                          <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                            <AlertTriangle className="size-2.5" /> Overdue — settle monthly
-                          </div>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+          {/* Cards */}
+          <div className="space-y-4">
+            {preview.map((row) => (
+              <SettlementCard
+                key={row.assignment_id}
+                row={row}
+                selected={selectedIds.has(row.assignment_id)}
+                onToggle={() => toggleSelect(row.assignment_id)}
+                onSettle={() => handleSettleOne(row)}
+                settling={settlingId === row.assignment_id}
+              />
+            ))}
           </div>
 
-          {/* Totals summary */}
-          {(() => {
-            const rowsInScope = (selectAll || selectedIds.size === 0)
-              ? preview
-              : preview.filter((r) => selectedIds.has(r.assignment_id));
-            const totalEarns = rowsInScope.reduce((s, r) => s + Number(r.trainer_earns ?? r.commission_amount ?? 0), 0);
-            const overdueCount = rowsInScope.filter((r) => {
-              const raw = r.sessions_completed_raw ?? r.sessions_completed ?? 0;
-              const counted = r.sessions_completed ?? 0;
-              return raw > counted;
-            }).length;
-
-            return (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-3">
-                <div className="flex flex-wrap gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Assignments: </span>
-                    <span className="font-medium">{rowsInScope.length}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Total payout: </span>
-                    <span className="font-semibold text-green-700 dark:text-green-400">{inr(totalEarns)}</span>
-                  </div>
-                  {overdueCount > 0 && (
-                    <div className="inline-flex items-center gap-1 text-amber-600">
-                      <AlertTriangle className="size-3.5" />
-                      <span>{overdueCount} overdue — some sessions were clamped. Settle monthly to capture all.</span>
-                    </div>
-                  )}
-                </div>
-                <Button
-                  disabled={confirm.isPending}
-                  onClick={handleConfirm}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
-                  {confirm.isPending && <Loader2 className="size-4 animate-spin mr-2" />}
-                  <CheckCircle2 className="size-4 mr-1.5" />
-                  Confirm Settlement
-                </Button>
+          {/* Footer totals + settle-all */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/40 px-4 py-3">
+            <div className="flex flex-wrap gap-5 text-sm">
+              <div>
+                <span className="text-muted-foreground">
+                  {selectedIds.size > 0 ? `${selectedIds.size} selected` : `All ${preview.length} assignments`}
+                </span>
               </div>
-            );
-          })()}
+              <div>
+                <span className="text-muted-foreground">Total payout: </span>
+                <span className="font-semibold text-green-700 dark:text-green-400">{inr(totalEarns)}</span>
+              </div>
+              {overdueCount > 0 && (
+                <div className="inline-flex items-center gap-1.5 text-amber-600">
+                  <AlertTriangle className="size-3.5" />
+                  <span>{overdueCount} overdue — sessions clamped to monthly cap</span>
+                </div>
+              )}
+            </div>
+            <Button
+              disabled={confirm.isPending}
+              onClick={handleSettleAll}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {confirm.isPending && <Loader2 className="size-4 animate-spin mr-2" />}
+              <CheckCircle2 className="size-4 mr-1.5" />
+              {selectedIds.size > 0 ? `Settle ${selectedIds.size} selected` : 'Settle All'}
+            </Button>
+          </div>
         </>
       )}
     </div>

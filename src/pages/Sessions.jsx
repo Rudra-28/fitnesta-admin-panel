@@ -24,6 +24,24 @@ import {
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+function todayLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Returns true if the session's end time has already passed but status is still ongoing
+function isStaleOngoing(session) {
+  if (session.status !== 'ongoing') return false;
+  const dateStr = session.scheduled_date
+    ? new Date(session.scheduled_date).toISOString().slice(0, 10)
+    : null;
+  if (!dateStr || !session.end_time) return false;
+  // end_time comes as "1970-01-01T..." — extract HH:MM
+  const endHHMM = new Date(session.end_time).toTimeString().slice(0, 5);
+  const sessionEnd = new Date(`${dateStr}T${endHHMM}:00`);
+  return new Date() > sessionEnd;
+}
+
 function resolveSessionCap(data) {
   const raw =
     data?.session_cap_per_month ??
@@ -269,6 +287,16 @@ function ReassignProfessionalModal({ session, onClose }) {
         )}
       </div>
 
+      {scope === 'single' && (
+        <div className="rounded-md bg-blue-50 border border-blue-200 p-3 flex items-start gap-2">
+          <span className="text-blue-500 mt-0.5 text-base">ℹ️</span>
+          <p className="text-xs text-blue-800 leading-normal">
+            <strong>Temporary substitution only.</strong> Only this one session is reassigned.
+            The original {profType}'s commission cycle is unchanged — their completed sessions are still settled as normal.
+            The substitute is credited only for this session via the session record.
+          </p>
+        </div>
+      )}
       {scope === 'all' && (
         <div className="rounded-md bg-amber-50 border border-amber-200 p-3 flex items-start gap-2">
           <span className="text-amber-600 mt-0.5 text-base">⚠️</span>
@@ -479,7 +507,8 @@ function PersonalTutorForm({ onClose }) {
             <Input
               type="date"
               value={form.start_date}
-              onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value, professional_id: '' }))}
+              min={todayLocal()}
+              onChange={(e) => { const v = e.target.value; if (v && v < todayLocal()) return; setForm((f) => ({ ...f, start_date: v, professional_id: '' })); }}
               required
               className="mt-1 w-full"
             />
@@ -744,7 +773,7 @@ function IndividualCoachingForm({ onClose }) {
           </div>
           <div>
             <label className="text-sm font-medium">Start Date</label>
-            <Input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value, professional_id: '' }))} required className="mt-1 w-full" />
+            <Input type="date" value={form.start_date} min={todayLocal()} onChange={(e) => { const v = e.target.value; if (v && v < todayLocal()) return; setForm((f) => ({ ...f, start_date: v, professional_id: '' })); }} required className="mt-1 w-full" />
           </div>
 
           <div>
@@ -1032,7 +1061,7 @@ function AutoGenerateForm({ onClose }) {
       {/* Start date */}
       <div>
         <label className="text-sm font-medium">Start Date</label>
-        <Input type="date" value={form.start_date} onChange={(e) => setF('start_date', e.target.value)} required />
+        <Input type="date" value={form.start_date} min={todayLocal()} onChange={(e) => { const v = e.target.value; if (v && v < todayLocal()) return; setF('start_date', v); }} required />
       </div>
 
       {/* Days of week */}
@@ -1336,11 +1365,18 @@ export default function Sessions() {
                   <td className="px-3 py-2">
                     {session.status === 'ongoing' ? (
                       <div>
-                        <Badge className="text-xs bg-blue-100 text-blue-800">ongoing</Badge>
+                        {isStaleOngoing(session) ? (
+                          <Badge className="text-xs bg-orange-100 text-orange-800 border border-orange-300">⚠ stale ongoing</Badge>
+                        ) : (
+                          <Badge className="text-xs bg-blue-100 text-blue-800">ongoing</Badge>
+                        )}
                         {session.in_time && (
                           <p className="text-[10px] text-muted-foreground mt-0.5">
                             In: {new Date(session.in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </p>
+                        )}
+                        {isStaleOngoing(session) && (
+                          <p className="text-[10px] text-orange-600 mt-0.5">End time passed — not checked out</p>
                         )}
                       </div>
                     ) : session.status === 'completed' ? (

@@ -863,6 +863,112 @@ export function useConfirmTrainerSettlement() {
   });
 }
 
+// PT Cycle Settlement
+export function usePtSettlement(professionalId) {
+  return useQuery({
+    queryKey: ['pt-settlement', professionalId],
+    queryFn: () => adminApi.getPtSettlement(professionalId),
+    enabled: !!professionalId,
+    retry: false,
+  });
+}
+
+export function useSettlePtCycle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cycleId, professional_id }) => adminApi.settlePtCycle(cycleId, professional_id),
+    onSuccess: (_, { professional_id }) => {
+      qc.invalidateQueries({ queryKey: ['pt-settlement', professional_id] });
+      qc.invalidateQueries({ queryKey: ['commissions'] });
+    },
+  });
+}
+
+// IC Cycle Settlement
+export function useIcSettlement(professionalId) {
+  return useQuery({
+    queryKey: ['ic-settlement', professionalId],
+    queryFn: () => adminApi.getIcSettlement(professionalId),
+    enabled: !!professionalId,
+    retry: false,
+  });
+}
+
+export function useSettleIcCycle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cycleId, professional_id }) => adminApi.settleIcCycle(cycleId, professional_id),
+    onSuccess: (_, { professional_id }) => {
+      qc.invalidateQueries({ queryKey: ['ic-settlement', professional_id] });
+      qc.invalidateQueries({ queryKey: ['commissions'] });
+    },
+  });
+}
+
+// Batch Cycle Settlement (society + school)
+export function useSocietySettlement(professionalId) {
+  return useQuery({
+    queryKey: ['society-settlement', professionalId],
+    queryFn: () => adminApi.getSocietySettlement(professionalId),
+    enabled: !!professionalId,
+    retry: false,
+  });
+}
+
+export function useSchoolSettlement(professionalId) {
+  return useQuery({
+    queryKey: ['school-settlement', professionalId],
+    queryFn: () => adminApi.getSchoolSettlement(professionalId),
+    enabled: !!professionalId,
+    retry: false,
+  });
+}
+
+export function useSettleBatchCycle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cycleId }) => adminApi.settleBatchCycle(cycleId),
+    onSuccess: (_, { professionalId }) => {
+      qc.invalidateQueries({ queryKey: ['society-settlement', professionalId] });
+      qc.invalidateQueries({ queryKey: ['school-settlement', professionalId] });
+      qc.invalidateQueries({ queryKey: ['commissions'] });
+    },
+  });
+}
+
+// Extend cycles
+export function useExtendBatchCycle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ batchId }) => adminApi.extendBatchCycle(batchId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['society-settlement'] });
+      qc.invalidateQueries({ queryKey: ['school-settlement'] });
+      qc.invalidateQueries({ queryKey: ['batch-settlements'] });
+    },
+  });
+}
+
+export function useExtendPtCycle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ personalTutorId }) => adminApi.extendPtCycle(personalTutorId),
+    onSuccess: (_, { professionalId }) => {
+      qc.invalidateQueries({ queryKey: ['pt-settlement', professionalId] });
+    },
+  });
+}
+
+export function useExtendIcCycle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ individualParticipantId }) => adminApi.extendIcCycle(individualParticipantId),
+    onSuccess: (_, { professionalId }) => {
+      qc.invalidateQueries({ queryKey: ['ic-settlement', professionalId] });
+    },
+  });
+}
+
 // Support Tickets
 export function useSupportTickets(filters) {
   return useQuery({
@@ -954,6 +1060,17 @@ export function useCreateBatchSession() {
       adminApi.createBatchSession(batchId, data),
     onSuccess: (_, { batchId }) => {
       qc.invalidateQueries({ queryKey: ['batch-detail', batchId] });
+    },
+  });
+}
+
+export function useAddSessionToCycle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data) => adminApi.addSessionToCycle(data),
+    onSuccess: (_, { professional_id }) => {
+      qc.invalidateQueries({ queryKey: ['trainer-settlement-preview', professional_id] });
+      qc.invalidateQueries({ queryKey: ['sessions'] });
     },
   });
 }
